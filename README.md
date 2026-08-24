@@ -239,3 +239,13 @@ This runs TypeScript checking, unit tests, and a production build.
 Run the bot on an always-on host such as Railway, Render, Fly.io, or a VPS. Add the environment variables through the host's secret manager; never commit `.env`.
 
 A `Dockerfile` is included for container platforms. The application does not need inbound HTTP traffic—only outbound access to Discord and the selected AI provider.
+
+### Discloud ZIP
+
+Rebuild the app and create `discloud-deploy.zip` with:
+
+```powershell
+pnpm deploy:zip
+```
+
+The default archive does not contain `.env`; configure secrets through the hosting provider. If a private manual upload specifically requires the local `.env`, use `pnpm deploy:zip:with-env`. The resulting ZIP is ignored by Git and must never be committed or shared publicly.

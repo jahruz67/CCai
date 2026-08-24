@@ -11,6 +11,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "pnpm typecheck && pnpm test && pnpm build",
+    "deploy:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rebuild-discloud-zip.ps1",
+    "deploy:zip:with-env": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rebuild-discloud-zip.ps1 -IncludeEnv",
     "dev": "tsx watch src/index.ts",
     "register-commands": "tsx src/register-commands.ts",
     "start": "node --max-old-space-size=70 dist/index.js",
