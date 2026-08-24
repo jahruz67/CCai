@@ -1,5 +1,7 @@
 # CC Discord Bot
 
+![C.C. from Code Geass holding pizza](./CC-and-Pizza-Hut-from-Code-Geass.jpg)
+
 A small AI assistant for Discord. Ask it a question with a normal message:
 
 ```text
