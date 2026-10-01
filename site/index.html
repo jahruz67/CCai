@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="CC is a fast, searchable AI assistant for Discord with memory, citations, and guarded server tools."
+    />
+    <meta name="theme-color" content="#0c0d0f" />
+    <meta name="repository" content="https://github.com/jahruz67/CCai" />
+    <title>CC — intelligence, in your Discord</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-grid" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="CC home">
+        <span class="brand-mark">C<span>.</span>C</span>
+        <span class="brand-name">discord intelligence</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#capabilities">Capabilities</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#commands">Commands</a>
+      </nav>
+      <a class="button button-small button-ghost" href="https://github.com/" data-repo-link>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 .7a11.6 11.6 0 0 0-3.7 22.5c.6.1.8-.2.8-.5v-2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.5-1.3-1.9-1.3-1.9-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.4-5.5-5.8 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.6.1-3.2 0 0 1-.3 3.3 1.2a11.3 11.3 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.5-2.7 5.5-5.5 5.8.5.4.8 1.1.8 2.2v3.1c0 .3.2.6.9.5A11.6 11.6 0 0 0 12 .7Z"/></svg>
+        GitHub
+      </a>
+      <button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">
+        <span></span><span></span>
+      </button>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="eyebrow reveal"><span class="status-dot"></span> Contract active · ready for your server</div>
+        <h1 class="reveal">Your Discord,<br /><em>thinking out loud.</em></h1>
+        <p class="hero-copy reveal">
+          A calm, clever accomplice for grounded answers, live web search, and careful server management—right where your community already talks.
+        </p>
+        <div class="hero-actions reveal">
+          <a class="button button-primary" href="#commands">Explore commands <span>↘</span></a>
+          <button class="button button-ghost copy-install" type="button" data-copy="pnpm install">
+            <code>pnpm install</code>
+            <span class="copy-label">Copy</span>
+          </button>
+        </div>
+        <div class="hero-note reveal">Open source · Self-hosted · Zero unnecessary rebellions</div>
+
+        <div class="console-card reveal" aria-label="Example Discord conversation">
+          <div class="console-topbar">
+            <div class="window-dots"><span></span><span></span><span></span></div>
+            <span># general</span>
+            <span class="console-live"><i></i> live</span>
+          </div>
+          <div class="chat-row">
+            <div class="avatar avatar-user">A</div>
+            <div>
+              <div class="chat-meta">alex <time>Today at 10:42 AM</time></div>
+              <p><strong>cc</strong> why does the sky turn red at sunset?</p>
+            </div>
+          </div>
+          <div class="chat-row bot-row">
+            <div class="avatar avatar-bot"><img src="./cc-avatar.jpg" alt="" /></div>
+            <div>
+              <div class="chat-meta">CC <span class="app-badge">APP</span> <time>Today at 10:42 AM</time></div>
+              <p>
+                At sunset, sunlight travels through more atmosphere. Shorter blue wavelengths scatter away first, leaving the longer red and orange wavelengths to reach your eyes.
+              </p>
+              <div class="source-row"><span>↗</span> Grounded with 3 sources</div>
+            </div>
+          </div>
+          <div class="typing-bar"><span>Message #general</span><kbd>⌘ K</kbd></div>
+          <div class="character-note" aria-label="CC personality status">
+            <span>C.C. protocol</span>
+            <span>composed</span>
+            <span>strategic</span>
+            <span>pizza-motivated</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="marquee" aria-label="Product highlights">
+        <div class="marquee-track">
+          <span>LIVE SEARCH</span><i>✦</i><span>PERSISTENT MEMORY</span><i>✦</i><span>SERVER TOOLS</span><i>✦</i><span>CONTEXT AWARE</span><i>✦</i><span>LIVE SEARCH</span><i>✦</i><span>PERSISTENT MEMORY</span><i>✦</i><span>SERVER TOOLS</span><i>✦</i><span>CONTEXT AWARE</span>
+        </div>
+      </section>
+
+      <section class="section capabilities" id="capabilities">
+        <div class="section-heading reveal">
+          <div><span class="section-number">01</span><span class="kicker">Built to be useful</span></div>
+          <h2>A better<br />contract.</h2>
+          <p>Sharp enough for strategy. Fast enough for everyday questions. No supernatural side effects.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature feature-wide reveal">
+            <div class="feature-copy">
+              <div class="icon-box">⌁</div>
+              <h3>Answers that know what’s happening now.</h3>
+              <p>Search the live web with DuckDuckGo, Tavily, Brave, or your own SearXNG instance. Sources stay clean and clickable.</p>
+              <span class="feature-tag">WEB SEARCH</span>
+            </div>
+            <div class="search-visual" aria-hidden="true">
+              <div class="search-query"><span>⌕</span><span class="query-text">latest space discoveries</span><i></i></div>
+              <div class="result-card result-one"><small>NASA · 2m ago</small><strong>Webb reveals new detail in distant atmosphere</strong><span>↗</span></div>
+              <div class="result-card result-two"><small>Nature · 8m ago</small><strong>A sharper look at an ancient galaxy</strong><span>↗</span></div>
+            </div>
+          </article>
+
+          <article class="feature reveal">
+            <div class="icon-box">∞</div>
+            <h3>The power of<br />absolute recall.</h3>
+            <p>Teach CC the abbreviations, facts, and definitions that make your server yours.</p>
+            <div class="memory-stack" aria-hidden="true">
+              <div><code>BRB</code><span>Be Right Back</span></div>
+              <div><code>ship</code><span>Next release</span></div>
+              <div><code>🍕</code><span>Friday’s standing order</span></div>
+            </div>
+          </article>
+
+          <article class="feature feature-accent reveal">
+            <div class="icon-box">◇</div>
+            <h3>Powerful tools.<br />Careful hands.</h3>
+            <p>Preview server changes before they happen. Only authorized roles can confirm them.</p>
+            <div class="approval-card" aria-hidden="true">
+              <span class="approval-label">ACTION PREVIEW</span>
+              <strong>Create #announcements</strong>
+              <div><span>Cancel</span><span>✓ Confirm</span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section workflow" id="workflow">
+        <div class="section-heading split reveal">
+          <div><span class="section-number">02</span><span class="kicker">The workflow</span></div>
+          <h2>From message<br />to useful answer.</h2>
+          <p>A compact strategy that keeps context close, guardrails closer, and chaos off the board.</p>
+        </div>
+
+        <div class="pipeline reveal">
+          <div class="pipeline-head">
+            <div><span class="status-dot"></span><strong>cc-response.yml</strong></div>
+            <span>completed in 1.8s</span>
+          </div>
+          <div class="pipeline-steps">
+            <div class="pipe-step active"><span class="pipe-index">01</span><i>✓</i><div><strong>Listen</strong><small>Prefix, mention, DM, or slash command</small></div></div>
+            <div class="pipe-line"></div>
+            <div class="pipe-step active"><span class="pipe-index">02</span><i>✓</i><div><strong>Understand</strong><small>Conversation + server memory</small></div></div>
+            <div class="pipe-line"></div>
+            <div class="pipe-step active"><span class="pipe-index">03</span><i>✓</i><div><strong>Research</strong><small>Live sources when the moment needs them</small></div></div>
+            <div class="pipe-line"></div>
+            <div class="pipe-step active"><span class="pipe-index">04</span><i>✓</i><div><strong>Respond</strong><small>Clear, cited, Discord-native output</small></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section command-section" id="commands">
+        <div class="command-intro reveal">
+          <span class="section-number">03</span>
+          <span class="kicker">Try the language</span>
+          <h2>No new interface<br />to learn.</h2>
+          <p>Talk normally. CC meets your community where it already is.</p>
+        </div>
+        <div class="command-list reveal">
+          <button type="button" data-command="cc what is one plus one"><code><b>cc</b> what is one plus one</code><span>Copy ↗</span></button>
+          <button type="button" data-command="cc search latest tech news"><code><b>cc</b> search latest tech news</code><span>Copy ↗</span></button>
+          <button type="button" data-command="cc remember BRB = Be Right Back"><code><b>cc</b> remember BRB = Be Right Back</code><span>Copy ↗</span></button>
+          <button type="button" data-command="cc manage create a channel named announcements"><code><b>cc</b> manage create a channel named announcements</code><span>Copy ↗</span></button>
+        </div>
+      </section>
+
+      <section class="cta-section reveal">
+        <div class="cta-orbit orbit-one" aria-hidden="true"></div>
+        <div class="cta-orbit orbit-two" aria-hidden="true"></div>
+        <p>EVERY GREAT PLAN STARTS SOMEWHERE.</p>
+        <h2>Make the<br /><em>contract.</em></h2>
+        <div class="cta-actions">
+          <a class="button button-light" href="https://github.com/" data-repo-link>View on GitHub <span>↗</span></a>
+          <a class="text-link" href="#top">Back to top ↑</a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand" href="#top"><span class="brand-mark">C<span>.</span>C</span></a>
+      <p>Open-source Discord intelligence.<br />Built with strategy, green hair, and pizza.</p>
+      <div><span>MIT License</span><span>Self-hosted</span><span>2026</span></div>
+    </footer>
+
+    <div class="toast" role="status" aria-live="polite">Copied to clipboard</div>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,5 +1,7 @@
 # CC Discord Bot
 
+> **Website:** A responsive product site lives in [`site/`](./site). Push changes on `main` to publish it through the included GitHub Pages workflow.
+
 ![C.C. from Code Geass holding pizza](./CC-and-Pizza-Hut-from-Code-Geass.jpg)
 
 A small AI assistant for Discord. Ask it a question with a normal message:
