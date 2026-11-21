@@ -33,7 +33,7 @@ Core Principles:
 const environmentSchema = z.object({
   AI_API_KEY: z.string().trim().min(1, "AI_API_KEY is required"),
   AI_API_STYLE: z
-    .enum(["responses", "chat-completions"])
+    .enum(["responses", "chat-completions", "google-native"])
     .default("responses"),
   AI_CHAT_TOKEN_FIELD: z
     .enum(["auto", "max_tokens", "max_completion_tokens"])
@@ -42,7 +42,7 @@ const environmentSchema = z.object({
     .string()
     .trim()
     .url()
-    .default("https://api.openai.com/v1"),
+    .optional(),
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(16_384).default(800),
   AI_MODEL: z.string().trim().min(1).default("gpt-5-mini"),
   AI_REASONING_EFFORT: z
@@ -78,8 +78,14 @@ const environmentSchema = z.object({
   MAX_MEMORY_KEY_CHARS: z.coerce.number().int().min(1).max(200).default(100),
   MAX_MEMORY_VALUE_CHARS: z.coerce.number().int().min(1).max(4_000).default(1_000),
   MAX_QUESTION_CHARS: z.coerce.number().int().min(100).max(50_000).default(4_000),
+  MAX_REPLY_CHAIN_DEPTH: z.coerce.number().int().min(1).max(10).default(3),
+  MAX_REPLY_CONTEXT_CHARS: z.coerce.number().int().min(100).max(50_000).default(4_000),
   MEMORY_DATABASE_URL: z.string().trim().optional(),
   MEMORY_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  REPLY_CONTEXT_ENABLED: z
     .enum(["true", "false"])
     .default("true")
     .transform((value) => value === "true"),
@@ -114,7 +120,7 @@ export interface BotConfig {
     maxOutputTokens: number;
     model: string;
     reasoningEffort: "off" | "none" | "low" | "medium" | "high";
-    style: "responses" | "chat-completions";
+    style: "responses" | "chat-completions" | "google-native";
     systemPrompt: string;
     timeoutMs: number;
     webSearchEnabled: boolean;
@@ -146,6 +152,11 @@ export interface BotConfig {
     maxValueChars: number;
   };
   prefix: string;
+  replyContext: {
+    enabled: boolean;
+    maxChainDepth: number;
+    maxChars: number;
+  };
   search: {
     braveApiKey?: string;
     maxResults: number;
@@ -190,10 +201,25 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): BotCon
   const databaseUrl = values.DATABASE_URL || values.MEMORY_DATABASE_URL;
   const isMemoryEnabled = values.MEMORY_ENABLED && Boolean(databaseUrl);
 
+  const defaultGoogleBaseUrl = "https://generativelanguage.googleapis.com/v1beta";
+  const defaultOpenAiBaseUrl = "https://api.openai.com/v1";
+
+  const rawBaseUrl =
+    values.AI_BASE_URL ??
+    (values.AI_API_STYLE === "google-native"
+      ? defaultGoogleBaseUrl
+      : defaultOpenAiBaseUrl);
+
+  const resolvedBaseUrl =
+    values.AI_API_STYLE === "google-native" &&
+    (rawBaseUrl === defaultOpenAiBaseUrl || rawBaseUrl.includes("api.openai.com"))
+      ? defaultGoogleBaseUrl
+      : rawBaseUrl;
+
   return {
     ai: {
       apiKey: values.AI_API_KEY,
-      baseUrl: values.AI_BASE_URL.replace(/\/+$/, ""),
+      baseUrl: resolvedBaseUrl.replace(/\/+$/, ""),
       chatTokenField: values.AI_CHAT_TOKEN_FIELD,
       maxOutputTokens: values.AI_MAX_OUTPUT_TOKENS,
       model: values.AI_MODEL,
@@ -232,6 +258,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): BotCon
       maxValueChars: values.MAX_MEMORY_VALUE_CHARS,
     },
     prefix: values.BOT_PREFIX,
+    replyContext: {
+      enabled: values.REPLY_CONTEXT_ENABLED,
+      maxChainDepth: values.MAX_REPLY_CHAIN_DEPTH,
+      maxChars: values.MAX_REPLY_CONTEXT_CHARS,
+    },
     search: {
       ...(values.BRAVE_API_KEY ? { braveApiKey: values.BRAVE_API_KEY } : {}),
       maxResults: values.SEARCH_MAX_RESULTS,

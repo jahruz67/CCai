@@ -4,7 +4,9 @@ import {
   AiProviderError,
   AiTimeoutError,
   extractChatCompletionsText,
+  extractGoogleNativeText,
   extractResponsesText,
+  isGemmaModel,
 } from "../src/ai-client.js";
 import type { BotConfig } from "../src/config.js";
 import { SearchService } from "../src/search-provider.js";
@@ -104,6 +106,20 @@ describe("AI response extraction", () => {
         choices: [{ message: { content: "  two 【1†source】 " } }],
       }),
     ).toBe("two");
+  });
+
+  it("extracts Google Native output and cleans citation artifacts", () => {
+    expect(
+      extractGoogleNativeText({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: "  42 [cite: 1] " }],
+            },
+          },
+        ],
+      }),
+    ).toBe("42");
   });
 });
 
@@ -403,5 +419,602 @@ describe("AiClient", () => {
     await expect(
       client.generate([{ content: "hello", role: "user" }]),
     ).rejects.toBeInstanceOf(AiTimeoutError);
+  });
+
+  describe("google-native provider", () => {
+    it("identifies Gemma models correctly", () => {
+      expect(isGemmaModel("gemma-4-31b-it")).toBe(true);
+      expect(isGemmaModel("gemma-2-27b-it")).toBe(true);
+      expect(isGemmaModel("models/gemma-2-9b-it")).toBe(true);
+      expect(isGemmaModel("gemini-2.5-flash")).toBe(false);
+      expect(isGemmaModel("gemini-1.5-pro")).toBe(false);
+    });
+
+    it("sends a native Google API request for Gemma models without systemInstruction and without tools", async () => {
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: "Gemma response" }],
+                    role: "model",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemma-4-31b-it",
+          style: "google-native",
+          systemPrompt: "Be an accurate assistant.",
+        }),
+        fetcher,
+      );
+
+      const result = await client.generate([{ content: "explain physics", role: "user" }]);
+      expect(result).toBe("Gemma response");
+
+      expect(fetcher).toHaveBeenCalledOnce();
+      const [url, init] = fetcher.mock.calls[0]!;
+      expect(url).toBe(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent",
+      );
+      expect(init?.headers).toMatchObject({
+        "Content-Type": "application/json",
+        "x-goog-api-key": "secret-key",
+      });
+
+      const body = JSON.parse(String(init?.body)) as {
+        contents: Array<{
+          parts: Array<{ text?: string }>;
+          role: string;
+        }>;
+        generationConfig: { maxOutputTokens: number };
+        systemInstruction?: unknown;
+        tools?: unknown;
+      };
+
+      // Gemma must not have systemInstruction or tools fields
+      expect(body.systemInstruction).toBeUndefined();
+      expect(body.tools).toBeUndefined();
+      expect(body.generationConfig.maxOutputTokens).toBe(200);
+
+      // System instruction must be prepended to the user content turn
+      expect(body.contents).toHaveLength(1);
+      expect(body.contents[0]?.role).toBe("user");
+      expect(body.contents[0]?.parts[0]?.text).toContain("[System Instructions]");
+      expect(body.contents[0]?.parts[0]?.text).toContain("Be an accurate assistant.");
+      expect(body.contents[0]?.parts[0]?.text).toContain("explain physics");
+    });
+
+    it("sends a native Google API request for Gemini models with systemInstruction and tools", async () => {
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: "Gemini response" }],
+                    role: "model",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const searchService = new SearchService({
+        maxResults: 3,
+        provider: "duckduckgo",
+        timeoutMs: 5000,
+      });
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemini-2.5-flash",
+          reasoningEffort: "medium",
+          style: "google-native",
+          systemPrompt: "Be a helpful bot.",
+          webSearchEnabled: true,
+        }),
+        fetcher,
+        searchService,
+      );
+
+      const result = await client.generate([{ content: "hello Gemini", role: "user" }]);
+      expect(result).toBe("Gemini response");
+
+      expect(fetcher).toHaveBeenCalledOnce();
+      const [url, init] = fetcher.mock.calls[0]!;
+      expect(url).toBe(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      );
+
+      const body = JSON.parse(String(init?.body)) as {
+        contents: Array<{
+          parts: Array<{ text?: string }>;
+          role: string;
+        }>;
+        generationConfig: { maxOutputTokens: number; thinkingConfig?: { thinkingBudget: number } };
+        systemInstruction?: { parts: Array<{ text: string }> };
+        tools?: Array<{ functionDeclarations: Array<{ name: string }> }>;
+      };
+
+      // Gemini sends native systemInstruction
+      expect(body.systemInstruction?.parts[0]?.text).toContain("Be a helpful bot.");
+      expect(body.contents[0]?.parts[0]?.text).toBe("hello Gemini");
+
+      // Gemini sends web_search tool declaration
+      expect(body.tools?.[0]?.functionDeclarations[0]?.name).toBe("web_search");
+
+      // Gemini configures thinking budget when reasoning is enabled
+      expect(body.generationConfig.thinkingConfig?.thinkingBudget).toBe(4096);
+    });
+
+    it("handles native Google tool calling for web_search and formats sources", async () => {
+      const searchFetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              results: [
+                {
+                  content: "Gemini 2.5 was announced by Google in 2026.",
+                  title: "Google Gemini 2.5",
+                  url: "https://blog.google/gemini-2-5",
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+      const searchService = new SearchService(
+        { maxResults: 3, provider: "tavily", tavilyApiKey: "test_key", timeoutMs: 5000 },
+        searchFetcher,
+      );
+
+      const aiFetcher = vi
+        .fn()
+        // Round 1: Gemini decides to call web_search
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        functionCall: {
+                          args: { query: "Gemini 2.5 release date" },
+                          name: "web_search",
+                        },
+                      },
+                    ],
+                    role: "model",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        )
+        // Round 2: Gemini answers after receiving search results
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: "Gemini 2.5 was released in 2026." }],
+                    role: "model",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemini-2.5-flash",
+          style: "google-native",
+        }),
+        aiFetcher,
+        searchService,
+      );
+
+      const result = await client.generate([{ content: "when was gemini 2.5 released?", role: "user" }]);
+      expect(result).toContain("Gemini 2.5 was released in 2026.");
+      expect(result).toContain("**Sources & References**");
+      expect(result).toContain("[blog.google](<https://blog.google/gemini-2-5>)");
+
+      expect(aiFetcher).toHaveBeenCalledTimes(2);
+
+      // Verify the second request includes the tool response in Google format
+      const secondBody = JSON.parse(String(aiFetcher.mock.calls[1]?.[1]?.body)) as {
+        contents: Array<{
+          parts: Array<{
+            functionCall?: { name: string };
+            functionResponse?: { name: string; response: { content: string } };
+          }>;
+          role: string;
+        }>;
+      };
+
+      const toolResponseTurn = secondBody.contents.find((c) =>
+        c.parts.some((p) => p.functionResponse?.name === "web_search"),
+      );
+      expect(toolResponseTurn).toBeDefined();
+      expect(toolResponseTurn?.role).toBe("user");
+      expect(toolResponseTurn?.parts[0]?.functionResponse?.response.content).toContain(
+        "Gemini 2.5 was announced",
+      );
+    });
+
+    it("formats multimodal content with inlineData for Gemini models and text note for Gemma models", async () => {
+      const geminiFetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              candidates: [{ content: { parts: [{ text: "A picture of a pizza" }] } }],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const geminiClient = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemini-2.5-flash",
+          style: "google-native",
+        }),
+        geminiFetcher,
+      );
+
+      await geminiClient.generate([
+        {
+          content: [
+            { text: "What is this?", type: "text" },
+            { image_url: { url: "data:image/jpeg;base64,abc123xyz==" }, type: "image_url" },
+          ],
+          role: "user",
+        },
+      ]);
+
+      const geminiBody = JSON.parse(String(geminiFetcher.mock.calls[0]?.[1]?.body)) as {
+        contents: Array<{
+          parts: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }>;
+        }>;
+      };
+      const inlineDataPart = geminiBody.contents[0]?.parts.find((p) => p.inlineData);
+      expect(inlineDataPart?.inlineData).toEqual({
+        data: "abc123xyz==",
+        mimeType: "image/jpeg",
+      });
+
+      // Test Gemma model handling of image attachment
+      const gemmaFetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              candidates: [{ content: { parts: [{ text: "Text response" }] } }],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const gemmaClient = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemma-4-31b-it",
+          style: "google-native",
+        }),
+        gemmaFetcher,
+      );
+
+      await gemmaClient.generate([
+        {
+          content: [
+            { text: "Check this picture", type: "text" },
+            { image_url: { url: "data:image/png;base64,xyz==" }, type: "image_url" },
+          ],
+          role: "user",
+        },
+      ]);
+
+      const gemmaBody = JSON.parse(String(gemmaFetcher.mock.calls[0]?.[1]?.body)) as {
+        contents: Array<{
+          parts: Array<{ inlineData?: unknown; text?: string }>;
+        }>;
+      };
+      // Gemma should not receive inlineData
+      expect(gemmaBody.contents[0]?.parts.some((p) => p.inlineData)).toBe(false);
+      expect(gemmaBody.contents[0]?.parts[0]?.text).toContain(
+        "[Attached image - not supported by text-only Gemma model]",
+      );
+    });
+
+    it("extracts citations from Google groundingMetadata", async () => {
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: "Grounded answer about astrophysics." }],
+                  },
+                  groundingMetadata: {
+                    groundingChunks: [
+                      {
+                        web: {
+                          title: "NASA Astrophysics",
+                          uri: "https://nasa.gov/astrophysics",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemini-2.5-flash",
+          style: "google-native",
+        }),
+        fetcher,
+      );
+
+      const answer = await client.generate([{ content: "latest discoveries", role: "user" }]);
+      expect(answer).toContain("Grounded answer about astrophysics.");
+      expect(answer).toContain("**Sources & References**");
+      expect(answer).toContain("[nasa.gov](<https://nasa.gov/astrophysics>)");
+    });
+
+    it("maps Google 400 invalid API key error to status 401", async () => {
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 400,
+                message: "API key not valid. Please pass a valid API key.",
+                status: "INVALID_ARGUMENT",
+              },
+            }),
+            {
+              headers: { "x-request-id": "goog-err-1" },
+              status: 400,
+            },
+          ),
+      );
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemma-4-31b-it",
+          style: "google-native",
+        }),
+        fetcher,
+      );
+
+      await expect(client.generate([{ content: "test", role: "user" }])).rejects.toMatchObject({
+        name: "AiProviderError",
+        requestId: "goog-err-1",
+        status: 401,
+      });
+    });
+
+    it("handles Google 404 model not found error", async () => {
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 404,
+                message: "models/unknown-model is not found for API version v1beta",
+                status: "NOT_FOUND",
+              },
+            }),
+            { status: 404 },
+          ),
+      );
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "unknown-model",
+          style: "google-native",
+        }),
+        fetcher,
+      );
+
+      await expect(client.generate([{ content: "test", role: "user" }])).rejects.toThrow(
+        /not found or unsupported by Google API/i,
+      );
+    });
+
+    it("handles Google safety refusal and max tokens finish reasons", async () => {
+      const refusalFetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  finishReason: "SAFETY",
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const refusalClient = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemini-2.5-flash",
+          style: "google-native",
+        }),
+        refusalFetcher,
+      );
+
+      await expect(
+        refusalClient.generate([{ content: "unsafe request", role: "user" }]),
+      ).rejects.toMatchObject({ name: "AiRefusalError" });
+
+      const incompleteFetcher = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  finishReason: "MAX_TOKENS",
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const incompleteClient = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemini-2.5-flash",
+          style: "google-native",
+        }),
+        incompleteFetcher,
+      );
+
+      await expect(
+        incompleteClient.generate([{ content: "long request", role: "user" }]),
+      ).rejects.toMatchObject({ name: "AiIncompleteResponseError" });
+    });
+
+    it("falls back when a model unexpectedly rejects system_instruction", async () => {
+      const fetcher = vi
+        .fn()
+        // First attempt with systemInstruction fails with 400
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 400,
+                message: "system_instruction is not supported for this model",
+                status: "INVALID_ARGUMENT",
+              },
+            }),
+            { status: 400 },
+          ),
+        )
+        // Second fallback attempt without systemInstruction succeeds
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: "Fallback succeeded" }],
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "custom-gemini-variant",
+          style: "google-native",
+        }),
+        fetcher,
+      );
+
+      const answer = await client.generate([{ content: "hello", role: "user" }]);
+      expect(answer).toBe("Fallback succeeded");
+      expect(fetcher).toHaveBeenCalledTimes(2);
+
+      // Verify the retry request omits systemInstruction
+      const retryBody = JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)) as {
+        systemInstruction?: unknown;
+      };
+      expect(retryBody.systemInstruction).toBeUndefined();
+    });
+
+    it("falls back when a model unexpectedly rejects function calling", async () => {
+      const searchService = new SearchService({
+        maxResults: 3,
+        provider: "duckduckgo",
+        timeoutMs: 5000,
+      });
+
+      const fetcher = vi
+        .fn()
+        // First attempt with tools fails with 400
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 400,
+                message: "Function calling is not supported for this model",
+                status: "INVALID_ARGUMENT",
+              },
+            }),
+            { status: 400 },
+          ),
+        )
+        // Second fallback attempt without tools succeeds
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: "Answer without tools" }],
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+
+      const client = new AiClient(
+        config({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          model: "gemini-lite",
+          style: "google-native",
+        }),
+        fetcher,
+        searchService,
+      );
+
+      const answer = await client.generate([{ content: "search for node", role: "user" }]);
+      expect(answer).toBe("Answer without tools");
+      expect(fetcher).toHaveBeenCalledTimes(2);
+
+      // Verify the retry request omits tools
+      const retryBody = JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)) as {
+        tools?: unknown;
+      };
+      expect(retryBody.tools).toBeUndefined();
+    });
   });
 });

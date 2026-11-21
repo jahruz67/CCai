@@ -25,6 +25,7 @@ It also responds to mentions, replies, DMs, `/ask`, and `/search`.
 - `cc <question>` with a configurable, case-insensitive prefix.
 - `cc search <query>` and `/search` for direct live web search.
 - **Optional Persistent Memory & Abbreviations (Aiven PostgreSQL)**: Save custom abbreviations, definitions, and facts (`cc remember BRB = Be Right Back`, `/remember`, `/memory`, `/forget`). Automatically injected into AI questions so CC knows your terminology.
+- **Universal Discord Reply Context**: When replying to any Discord message (from any user or bot) with `cc <request>`, CCai naturally understands the referenced message and its context (supports explanations, fact-checking, translation, code analysis, rewriting, summarization, rich embeds, attachments, and chained replies).
 - Bot mentions, replies to the bot, direct messages, and `/ask`.
 - **Free Live Web Search powered by DuckDuckGo (Zero API key needed!)**, Tavily, Brave Search, or SearXNG.
 - Short-term conversation context scoped to one user and channel.
@@ -38,7 +39,7 @@ It also responds to mentions, replies, DMs, `/ask`, and `/search`.
 - Multi-domain accuracy harness for physics, math, science, medicine, and code.
 - Discord-optimized math/LaTeX formatting and formula presentation.
 - No generated pings from model output.
-- OpenAI Responses API support and a generic chat-completions mode with AI tool calling.
+- Native Google Gemini & Gemma API support (`google-native`), OpenAI Responses API (`responses`), and generic Chat Completions mode (`chat-completions`) with tool calling.
 
 This version intentionally has no image generation, music, voice, payments, dashboard, or permanent message storage.
 
@@ -154,13 +155,32 @@ When configured, the bot automatically creates the `memories` table on startup a
 
 ### AI Provider Models
 
-The default model connection uses OpenAI's Responses API:
+#### Native Google Gemini & Gemma API (`google-native`)
+
+To use Google's official Gemini/Gemma API directly:
+
+```dotenv
+AI_API_STYLE=google-native
+AI_MODEL=gemma-4-31b-it
+AI_API_KEY=your_google_api_key
+```
+
+Supported models include:
+- **Gemma models**: `gemma-4-31b-it`, `gemma-2-27b-it`, `gemma-2-9b-it`, etc. Gemma models are automatically handled with appropriate prompt packaging (system instructions are cleanly prepended to the user turn, avoiding Google's 400 rejection of `system_instruction` on Gemma models, and proactive DuckDuckGo search provides live search context without requiring tool declarations).
+- **Gemini models**: `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-pro`, `gemini-1.5-flash`, etc. Gemini models natively support `systemInstruction`, image multimodal inputs (`inlineData`), and function calling for live `web_search`.
+
+The default endpoint is `https://generativelanguage.googleapis.com/v1beta`. You can optionally override it with `AI_BASE_URL` if routing through a proxy.
+
+#### OpenAI Responses API (`responses`)
 
 ```dotenv
 AI_BASE_URL=https://api.openai.com/v1
 AI_API_STYLE=responses
 AI_MODEL=gpt-5-mini
+AI_API_KEY=your_openai_api_key
 ```
+
+#### OpenAI-Compatible Chat Completions (`chat-completions`)
 
 To use a provider that exposes an OpenAI-compatible Chat Completions endpoint (e.g. OpenRouter, Groq, Ollama, DeepSeek):
 
@@ -172,7 +192,7 @@ AI_MODEL=provider-model-name
 AI_API_KEY=provider-key
 ```
 
-When using `chat-completions`, the bot equips the AI model with a `web_search` tool call function. When questions require live data, the AI searches DuckDuckGo / Tavily in real time, reads the snippets, and generates a grounded response with clickable citation links.
+When using `chat-completions` or `google-native` (Gemini), the bot equips the AI model with a `web_search` tool function. When questions require live data, the AI searches DuckDuckGo / Tavily in real time, reads the snippets, and generates a grounded response with clickable citation links. Proactive DuckDuckGo search also injects live context for models without function calling.
 
 ## 3. Register slash commands
 
@@ -213,6 +233,9 @@ cc clear
 | Variable | Default | Purpose |
 |---|---:|---|
 | `BOT_PREFIX` | `cc` | Normal-message trigger |
+| `AI_API_STYLE` | `responses` | AI provider protocol: `google-native`, `responses`, `chat-completions` |
+| `AI_MODEL` | `gpt-5-mini` | AI model name (e.g. `gemma-4-31b-it`, `gemini-2.5-flash`, `gpt-5-mini`) |
+| `AI_BASE_URL` | auto | Provider base URL (defaults according to `AI_API_STYLE`) |
 | `SEARCH_PROVIDER` | `duckduckgo` | Search provider: `duckduckgo`, `auto`, `tavily`, `brave`, `searxng` |
 | `SEARCH_MAX_RESULTS` | `5` | Maximum number of search results passed to AI |
 | `SEARCH_TIMEOUT_MS` | `10000` | Search request timeout in ms |
@@ -220,6 +243,9 @@ cc clear
 | `BRAVE_API_KEY` | blank | Optional API key for Brave Search API |
 | `SEARXNG_BASE_URL` | blank | Optional SearXNG instance URL |
 | `CHAT_HISTORY_ENABLED` | `true` | Enable or disable multi-turn conversation history |
+| `REPLY_CONTEXT_ENABLED` | `true` | Enable or disable universal Discord reply context awareness |
+| `MAX_REPLY_CONTEXT_CHARS` | `4000` | Maximum character limit for referenced reply context |
+| `MAX_REPLY_CHAIN_DEPTH` | `3` | Maximum number of chained reply levels to resolve |
 | `MAX_HISTORY_CHARS` | `12000` | Maximum character limit for retained conversation history |
 | `HISTORY_TTL_MINUTES` | `30` | Context expiry after the last successful answer |
 | `COOLDOWN_SECONDS` | `3` | Per-user delay between AI requests |

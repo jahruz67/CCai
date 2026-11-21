@@ -11,7 +11,7 @@ function createMockPool(): {
   let nextId = 1;
 
   const mockQuery = vi.fn(async (text: string, params?: unknown[]) => {
-    const trimmed = text.trim().toLowerCase();
+    const trimmed = text.trim().toLowerCase().replace(/\s+/g, " ");
 
     if (trimmed.startsWith("create table") || trimmed.startsWith("create index")) {
       return { rowCount: 0, rows: [] };
@@ -30,8 +30,11 @@ function createMockPool(): {
       return { rowCount: found ? 1 : 0, rows: found ? [found] : [] };
     }
 
-    if (trimmed.startsWith("select * from memories where scope = any")) {
-      const scopes = (params?.[0] as string[]) ?? [];
+    if (
+      trimmed.startsWith("select * from memories where scope in") ||
+      trimmed.startsWith("select * from memories where scope = any")
+    ) {
+      const scopes = Array.isArray(params?.[0]) ? (params[0] as string[]) : ((params as string[]) ?? []);
       const matches = rows.filter((r) => scopes.includes(r.scope));
       return { rowCount: matches.length, rows: matches };
     }
@@ -203,7 +206,7 @@ describe("MemoryStore", () => {
     expect(memories).toHaveLength(2);
 
     const promptText = store.formatForPrompt(memories);
-    expect(promptText).toContain("[Saved Memories & Abbreviations]");
+    expect(promptText).toContain("[IMPORTANT CONTEXT: Saved Memories & Abbreviations]");
     expect(promptText).toContain("- tz: UTC+2");
     expect(promptText).toContain("- project: aidiscord bot");
   });

@@ -147,6 +147,8 @@ export class AssistantService {
     imagesOrSignal?: readonly string[] | AbortSignal,
     signal?: AbortSignal,
     guildId?: string,
+    replyContext?: string,
+    replySnippet?: string,
   ): Promise<string> {
     const imageUrls = Array.isArray(imagesOrSignal) ? imagesOrSignal : undefined;
     const effectiveSignal =
@@ -220,6 +222,9 @@ export class AssistantService {
         this.activeTokens.set(scopeKey, requestToken);
         try {
           let userContentText = questionText;
+          if (replyContext) {
+            userContentText = `${replyContext}\n\n[User request]\n${userContentText}`;
+          }
           if (memoryContext) {
             userContentText = `${memoryContext}\n\n[User question]\n${userContentText}`;
           }
@@ -245,12 +250,15 @@ export class AssistantService {
           const answer = await this.generator.generate(messages, effectiveSignal);
           // Save original question (not the injected version) in history.
           if (this.activeTokens.get(scopeKey) === requestToken) {
-            const historyQuestion =
+            let historyQuestion =
               imageUrls && imageUrls.length > 0
                 ? cleanedQuestion
                   ? `${cleanedQuestion} [image attached]`
                   : "[image attached]"
                 : questionText;
+            if (replySnippet) {
+              historyQuestion = `[Replying to ${replySnippet}] ${historyQuestion}`;
+            }
             this.conversations.appendTurn(scopeKey, historyQuestion, answer);
           }
           return answer;

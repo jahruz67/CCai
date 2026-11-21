@@ -43,6 +43,10 @@ import {
   ServerManager,
   type ManageCommand,
 } from "./server-management.js";
+import {
+  resolveReplyContext,
+  type ResolvedReplyContext,
+} from "./reply-context.js";
 
 const SAFE_MENTIONS = { parse: [] as never[], repliedUser: false };
 const MEMORY_DISABLED_MSG =
@@ -180,11 +184,29 @@ async function handleMessage(
     message.author.id,
   );
 
+  let replyContext: ResolvedReplyContext | undefined;
+  if (config.replyContext.enabled && message.reference?.messageId) {
+    try {
+      replyContext = await resolveReplyContext(message, config.replyContext);
+    } catch (error) {
+      logRuntimeError("Reply context resolution", error);
+    }
+  }
+
   const imageUrls = await extractImagesFromMessage(message);
+  if (replyContext?.imageUrls) {
+    for (const url of replyContext.imageUrls) {
+      if (!imageUrls.includes(url) && imageUrls.length < 4) {
+        imageUrls.push(url);
+      }
+    }
+  }
 
   if (!parsed.text) {
     if (imageUrls.length > 0) {
       parsed.text = "Describe this image.";
+    } else if (replyContext?.contextText) {
+      parsed.text = "Please explain or summarize the referenced message.";
     } else {
       await safeMessageReply(message, helpText(config.prefix));
       return;
@@ -436,6 +458,8 @@ async function handleMessage(
       imageUrls,
       undefined,
       message.guildId ?? undefined,
+      replyContext?.contextText,
+      replyContext?.snippet,
     );
   } catch (error) {
     logAssistantError(error);
