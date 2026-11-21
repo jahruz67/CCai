@@ -53,6 +53,41 @@ const environmentSchema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((value) => value === "true"),
+  AI_FALLBACK_API_KEY: z.string().trim().optional(),
+  AI_FALLBACK_API_STYLE: z
+    .enum(["responses", "chat-completions", "google-native"])
+    .optional(),
+  AI_FALLBACK_BASE_URL: z.string().trim().url().optional(),
+  AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3_600_000)
+    .default(60_000),
+  AI_FALLBACK_CIRCUIT_BREAKER_THRESHOLD: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(50)
+    .default(0),
+  AI_FALLBACK_CONFIG: z.string().trim().optional(),
+  AI_FALLBACK_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  AI_FALLBACK_MAX_RETRIES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .default(1),
+  AI_FALLBACK_MODELS: z.string().default(""),
+  AI_FALLBACK_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(300_000)
+    .default(15_000),
   AI_ADMIN_ROLES: z.string().default(""),
   ALLOWED_CHANNEL_IDS: z.string().default(""),
   BOT_PREFIX: z.string().trim().min(1).max(16).default("cc"),
@@ -112,11 +147,33 @@ const registrationEnvironmentSchema = z.object({
   DISCORD_TOKEN: z.string().trim().min(1, "DISCORD_TOKEN is required"),
 });
 
+export interface AiFallbackModelConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  chatTokenField?: "auto" | "max_tokens" | "max_completion_tokens";
+  maxOutputTokens?: number;
+  model: string;
+  reasoningEffort?: "off" | "none" | "low" | "medium" | "high";
+  style?: "responses" | "chat-completions" | "google-native";
+  timeoutMs?: number;
+  webSearchEnabled?: boolean;
+}
+
+export interface AiFallbackConfig {
+  circuitBreakerCooldownMs: number;
+  circuitBreakerThreshold: number;
+  enabled: boolean;
+  maxRetries: number;
+  models: AiFallbackModelConfig[];
+  timeoutMs: number;
+}
+
 export interface BotConfig {
   ai: {
     apiKey: string;
     baseUrl: string;
     chatTokenField: "auto" | "max_tokens" | "max_completion_tokens";
+    fallback?: AiFallbackConfig;
     maxOutputTokens: number;
     model: string;
     reasoningEffort: "off" | "none" | "low" | "medium" | "high";
@@ -216,11 +273,14 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): BotCon
       ? defaultGoogleBaseUrl
       : rawBaseUrl;
 
+  const fallback = parseFallbackConfig(values, environment);
+
   return {
     ai: {
       apiKey: values.AI_API_KEY,
       baseUrl: resolvedBaseUrl.replace(/\/+$/, ""),
       chatTokenField: values.AI_CHAT_TOKEN_FIELD,
+      fallback,
       maxOutputTokens: values.AI_MAX_OUTPUT_TOKENS,
       model: values.AI_MODEL,
       reasoningEffort: values.AI_REASONING_EFFORT,
@@ -271,6 +331,205 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): BotCon
       ...(values.TAVILY_API_KEY ? { tavilyApiKey: values.TAVILY_API_KEY } : {}),
       timeoutMs: values.SEARCH_TIMEOUT_MS,
     },
+  };
+}
+
+export function isGoogleModelName(model: string): boolean {
+  return /^(?:models\/)?(?:gemini|gemma)/i.test(model);
+}
+
+export function parseFallbackConfig(
+  values: z.infer<typeof environmentSchema>,
+  rawEnv: NodeJS.ProcessEnv = process.env,
+): AiFallbackConfig {
+  const models: AiFallbackModelConfig[] = [];
+
+  // 1. If AI_FALLBACK_CONFIG is present, parse as JSON array
+  if (values.AI_FALLBACK_CONFIG) {
+    try {
+      const parsed = JSON.parse(values.AI_FALLBACK_CONFIG);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (
+            item &&
+            typeof item === "object" &&
+            typeof item.model === "string" &&
+            item.model.trim()
+          ) {
+            const rawModel = item.model.trim();
+            const rawStyle =
+              item.style ??
+              values.AI_FALLBACK_API_STYLE ??
+              (isGoogleModelName(rawModel) ? "google-native" : values.AI_API_STYLE);
+
+            const defaultBaseUrl =
+              rawStyle === "google-native"
+                ? "https://generativelanguage.googleapis.com/v1beta"
+                : "https://api.openai.com/v1";
+
+            models.push({
+              apiKey:
+                typeof item.apiKey === "string" && item.apiKey.trim()
+                  ? item.apiKey.trim()
+                  : values.AI_FALLBACK_API_KEY ?? values.AI_API_KEY,
+              baseUrl:
+                typeof item.baseUrl === "string" && item.baseUrl.trim()
+                  ? item.baseUrl.trim()
+                  : values.AI_FALLBACK_BASE_URL ?? (rawStyle === values.AI_API_STYLE ? values.AI_BASE_URL : defaultBaseUrl),
+              chatTokenField: item.chatTokenField,
+              maxOutputTokens:
+                typeof item.maxOutputTokens === "number"
+                  ? item.maxOutputTokens
+                  : values.AI_MAX_OUTPUT_TOKENS,
+              model: rawModel,
+              reasoningEffort: item.reasoningEffort,
+              style: rawStyle,
+              timeoutMs:
+                typeof item.timeoutMs === "number"
+                  ? item.timeoutMs
+                  : values.AI_FALLBACK_TIMEOUT_MS,
+              webSearchEnabled:
+                typeof item.webSearchEnabled === "boolean"
+                  ? item.webSearchEnabled
+                  : values.AI_WEB_SEARCH_ENABLED,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to parse AI_FALLBACK_CONFIG as JSON:", e);
+    }
+  }
+
+  // 2. Parse comma-separated AI_FALLBACK_MODELS if JSON was not provided
+  if (models.length === 0 && values.AI_FALLBACK_MODELS) {
+    const rawTokens = values.AI_FALLBACK_MODELS.split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    for (let i = 0; i < rawTokens.length; i++) {
+      const token = rawTokens[i]!;
+      const index = i + 1;
+
+      let modelName = token;
+      let stylePrefix: "responses" | "chat-completions" | "google-native" | undefined;
+
+      // Check for style:model syntax, e.g. "chat-completions:llama-3.3-70b"
+      if (token.includes(":")) {
+        const colonIdx = token.indexOf(":");
+        const prefix = token.slice(0, colonIdx).trim().toLowerCase();
+        const rest = token.slice(colonIdx + 1).trim();
+        if (
+          prefix === "responses" ||
+          prefix === "chat-completions" ||
+          prefix === "google-native"
+        ) {
+          stylePrefix = prefix;
+          modelName = rest;
+        }
+      }
+
+      // Check for indexed overrides from env: AI_FALLBACK_1_MODEL, etc.
+      const indexedModel = rawEnv[`AI_FALLBACK_${index}_MODEL`]?.trim();
+      const indexedStyle = rawEnv[`AI_FALLBACK_${index}_API_STYLE`]?.trim() as
+        | "responses"
+        | "chat-completions"
+        | "google-native"
+        | undefined;
+      const indexedApiKey = rawEnv[`AI_FALLBACK_${index}_API_KEY`]?.trim();
+      const indexedBaseUrl = rawEnv[`AI_FALLBACK_${index}_BASE_URL`]?.trim();
+      const indexedTimeout = rawEnv[`AI_FALLBACK_${index}_TIMEOUT_MS`]?.trim();
+
+      const finalModel = indexedModel || modelName;
+      if (!finalModel) continue;
+
+      const finalStyle =
+        indexedStyle ||
+        stylePrefix ||
+        values.AI_FALLBACK_API_STYLE ||
+        (isGoogleModelName(finalModel) ? "google-native" : values.AI_API_STYLE);
+
+      const defaultBaseUrl =
+        finalStyle === "google-native"
+          ? "https://generativelanguage.googleapis.com/v1beta"
+          : "https://api.openai.com/v1";
+
+      const finalApiKey =
+        indexedApiKey ||
+        values.AI_FALLBACK_API_KEY ||
+        (finalStyle === values.AI_API_STYLE ? values.AI_API_KEY : undefined);
+
+      const finalBaseUrl =
+        indexedBaseUrl ||
+        values.AI_FALLBACK_BASE_URL ||
+        (finalStyle === values.AI_API_STYLE && values.AI_BASE_URL
+          ? values.AI_BASE_URL
+          : defaultBaseUrl);
+
+      models.push({
+        apiKey: finalApiKey,
+        baseUrl: finalBaseUrl,
+        model: finalModel,
+        style: finalStyle,
+        timeoutMs: indexedTimeout ? Number(indexedTimeout) : values.AI_FALLBACK_TIMEOUT_MS,
+      });
+    }
+  }
+
+  // 3. Also check for standalone indexed entries AI_FALLBACK_1_MODEL, AI_FALLBACK_2_MODEL etc. if AI_FALLBACK_MODELS was empty
+  if (models.length === 0) {
+    for (let index = 1; index <= 10; index++) {
+      const indexedModel = rawEnv[`AI_FALLBACK_${index}_MODEL`]?.trim();
+      if (!indexedModel) continue;
+
+      const indexedStyle = rawEnv[`AI_FALLBACK_${index}_API_STYLE`]?.trim() as
+        | "responses"
+        | "chat-completions"
+        | "google-native"
+        | undefined;
+      const indexedApiKey = rawEnv[`AI_FALLBACK_${index}_API_KEY`]?.trim();
+      const indexedBaseUrl = rawEnv[`AI_FALLBACK_${index}_BASE_URL`]?.trim();
+      const indexedTimeout = rawEnv[`AI_FALLBACK_${index}_TIMEOUT_MS`]?.trim();
+
+      const finalStyle =
+        indexedStyle ||
+        values.AI_FALLBACK_API_STYLE ||
+        (isGoogleModelName(indexedModel) ? "google-native" : values.AI_API_STYLE);
+
+      const defaultBaseUrl =
+        finalStyle === "google-native"
+          ? "https://generativelanguage.googleapis.com/v1beta"
+          : "https://api.openai.com/v1";
+
+      const finalApiKey =
+        indexedApiKey ||
+        values.AI_FALLBACK_API_KEY ||
+        (finalStyle === values.AI_API_STYLE ? values.AI_API_KEY : undefined);
+
+      const finalBaseUrl =
+        indexedBaseUrl ||
+        values.AI_FALLBACK_BASE_URL ||
+        (finalStyle === values.AI_API_STYLE && values.AI_BASE_URL
+          ? values.AI_BASE_URL
+          : defaultBaseUrl);
+
+      models.push({
+        apiKey: finalApiKey,
+        baseUrl: finalBaseUrl,
+        model: indexedModel,
+        style: finalStyle,
+        timeoutMs: indexedTimeout ? Number(indexedTimeout) : values.AI_FALLBACK_TIMEOUT_MS,
+      });
+    }
+  }
+
+  return {
+    circuitBreakerCooldownMs: values.AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS,
+    circuitBreakerThreshold: values.AI_FALLBACK_CIRCUIT_BREAKER_THRESHOLD,
+    enabled: values.AI_FALLBACK_ENABLED,
+    maxRetries: values.AI_FALLBACK_MAX_RETRIES,
+    models,
+    timeoutMs: values.AI_FALLBACK_TIMEOUT_MS,
   };
 }
 

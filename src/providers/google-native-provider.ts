@@ -112,7 +112,8 @@ export class GoogleNativeProvider implements AiProvider {
       );
     } catch (error) {
       if (error instanceof AiProviderError && error.status === 400) {
-        // Fallback 1: If model rejected system_instruction, retry without it
+        // Request-format compatibility 1: If model rejected top-level system_instruction (HTTP 400),
+        // retry with system instructions safely prepended to the user turn so instructions & safety rules are preserved.
         if (useSystemInstruction && /system[_ ]instruction/i.test(error.message)) {
           return this.executeWithFallbacks(
             messages,
@@ -123,7 +124,9 @@ export class GoogleNativeProvider implements AiProvider {
           );
         }
 
-        // Fallback 2: If model rejected function calling / tools, retry without tools
+        // Request-format compatibility 2: If model rejected function calling / tools declarations (HTTP 400),
+        // retry without tool declarations. Note: Proactive web search in AssistantService already covers live
+        // web context, and Discord server permissions are enforced independently in Node.js by ServerManager.
         if (useTools && /(?:function|tool|call)/i.test(error.message)) {
           return this.executeWithFallbacks(
             messages,

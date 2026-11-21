@@ -40,6 +40,7 @@ It also responds to mentions, replies, DMs, `/ask`, and `/search`.
 - Discord-optimized math/LaTeX formatting and formula presentation.
 - No generated pings from model output.
 - Native Google Gemini & Gemma API support (`google-native`), OpenAI Responses API (`responses`), and generic Chat Completions mode (`chat-completions`) with tool calling.
+- **Configurable Automatic AI Model Fallback System**: When the primary model encounters recoverable failures (HTTP 503 overload, HTTP 429 rate limits, 502/504 gateways, or network timeouts), CCai automatically retries and falls back through configured backup models—including across different AI providers—without interrupting normal Discord conversations.
 
 This version intentionally has no image generation, music, voice, payments, dashboard, or permanent message storage.
 
@@ -194,6 +195,81 @@ AI_API_KEY=provider-key
 
 When using `chat-completions` or `google-native` (Gemini), the bot equips the AI model with a `web_search` tool function. When questions require live data, the AI searches DuckDuckGo / Tavily in real time, reads the snippets, and generates a grounded response with clickable citation links. Proactive DuckDuckGo search also injects live context for models without function calling.
 
+### Automatic AI Model Fallbacks
+
+When your primary AI model fails due to recoverable provider issues (e.g., Google servers returning HTTP 503 overload on `gemma-4-31b-it`, HTTP 429 rate limits, HTTP 502/504 gateway failures, or network timeouts), CCai automatically retries transient errors with exponential backoff and cascades through configured fallback models in sequence.
+
+Normal conversation is never interrupted, and Discord is never spammed with intermediate errors.
+
+#### 1. Basic Same-Provider Fallback
+
+If you run Google Gemma as your primary model, you can set fast Gemini models as automatic backups using your existing `AI_API_KEY`:
+
+```dotenv
+AI_API_STYLE=google-native
+AI_MODEL=gemma-4-31b-it
+
+# Automatic fallback configuration
+AI_FALLBACK_ENABLED=true
+AI_FALLBACK_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash
+AI_FALLBACK_MAX_RETRIES=2
+AI_FALLBACK_TIMEOUT_MS=15000
+```
+
+Execution flow:
+1. CCai sends the request to primary model `gemma-4-31b-it`.
+2. If Google returns HTTP 503 (server overloaded), CCai attempts up to `AI_FALLBACK_MAX_RETRIES` with exponential backoff.
+3. If Gemma remains unavailable, CCai automatically switches to `gemini-2.5-flash-lite`.
+4. If that fails, it switches to `gemini-2.5-flash`.
+5. The user receives a normal response in Discord without noticing the provider overload.
+6. The next independent question starts with `gemma-4-31b-it` again. The primary model is never permanently swapped away.
+
+#### 2. Cross-Provider Fallback
+
+Fallback models are not limited to the primary provider. You can configure backup models from completely different AI providers (e.g. Google Gemma primary → Google Gemini backup 1 → Groq Llama backup 2 → OpenAI backup 3):
+
+```dotenv
+AI_API_STYLE=google-native
+AI_MODEL=gemma-4-31b-it
+AI_API_KEY=your_google_api_key
+
+AI_FALLBACK_ENABLED=true
+AI_FALLBACK_MODELS=gemini-2.5-flash-lite,llama-3.3-70b-versatile
+AI_FALLBACK_MAX_RETRIES=1
+AI_FALLBACK_TIMEOUT_MS=15000
+
+# Distinct credentials and endpoint for fallback model #2 (Groq)
+AI_FALLBACK_2_API_STYLE=chat-completions
+AI_FALLBACK_2_BASE_URL=https://api.groq.com/openai/v1
+AI_FALLBACK_2_API_KEY=gsk_your_groq_api_key
+```
+
+Or configure all backup models as a structured JSON array via `AI_FALLBACK_CONFIG`:
+
+```dotenv
+AI_FALLBACK_CONFIG=[{"model":"gemini-2.5-flash-lite"},{"model":"llama-3.3-70b-versatile","style":"chat-completions","baseUrl":"https://api.groq.com/openai/v1","apiKey":"gsk_..."}]
+```
+
+#### 3. Diagnostic Logging
+
+CCai outputs clear diagnostic logs detailing every step without ever logging API keys, credentials, or user message content:
+
+```text
+Primary model gemma-4-31b-it failed: HTTP 503
+Retrying primary model: attempt 2
+Primary model gemma-4-31b-it failed: HTTP 503
+Switching to fallback model: gemini-2.5-flash-lite
+Fallback model succeeded
+```
+
+#### 4. Safeguards & Context Preservation
+
+- **Full Context & Memory Preservation**: Fallback models receive the exact same question, referenced message reply context, multi-turn history, memories, and web search results.
+- **Model Capability Differences**: Differences between text-only models (like Gemma) and multimodal/tool-calling models (like Gemini and OpenAI) are handled automatically. Gemma receives prepended system instructions; Gemini receives native system instructions and tools.
+- **Tool & Server-Management Safety**: Non-idempotent server-management operations are never executed prematurely or duplicated. Planning returns JSON only, and mutations still require explicit administrator confirmation (`cc manage confirm`).
+- **History Isolation**: Only the final successful response is added to conversation history. Failed attempts and intermediate retries are never stored.
+- **Circuit Breaker**: Optional configurable circuit breaker (`AI_FALLBACK_CIRCUIT_BREAKER_THRESHOLD=3`, `AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS=60000`) skips the primary model temporarily when multiple consecutive failures occur. Disabled by default (`0`), so every request starts with the primary model.
+
 ## 3. Register slash commands
 
 For development, keep `DISCORD_GUILD_ID` set so changes appear immediately:
@@ -258,6 +334,16 @@ cc clear
 | `AI_REASONING_EFFORT` | `off` | Optional `none`, `low`, `medium`, or `high` reasoning mode |
 | `AI_CHAT_TOKEN_FIELD` | `auto` | Token-limit field for chat-completions providers |
 | `AI_WEB_SEARCH_ENABLED` | `true` | Allow AI to search the live web |
+| `AI_FALLBACK_ENABLED` | `true` | Enable or disable automatic model fallback system |
+| `AI_FALLBACK_MODELS` | blank | Comma-separated fallback model names (e.g. `gemini-2.5-flash-lite,gemini-2.5-flash`) |
+| `AI_FALLBACK_MAX_RETRIES` | `1` | Max transient retries per model before moving to next fallback |
+| `AI_FALLBACK_TIMEOUT_MS` | `15000` | Per-fallback model request timeout in ms |
+| `AI_FALLBACK_CIRCUIT_BREAKER_THRESHOLD` | `0` | Consecutive failures before skipping primary (0 = disabled) |
+| `AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS` | `60000` | Cooldown period in ms while circuit breaker is open |
+| `AI_FALLBACK_CONFIG` | blank | Optional JSON array of fallback model configurations |
+| `AI_FALLBACK_API_KEY` | blank | Optional default API key for fallback models |
+| `AI_FALLBACK_BASE_URL` | blank | Optional default base URL for fallback models |
+| `AI_FALLBACK_API_STYLE` | blank | Optional default API style for fallback models |
 | `SYSTEM_PROMPT` | shown in `.env.example` | Bot personality and output rules |
 
 Recent context lives only in process memory. It disappears when the bot restarts and automatically expires. Failed AI requests are not added to history.
@@ -274,9 +360,49 @@ This runs TypeScript checking, unit tests, and a production build.
 
 ## Deployment
 
-Run the bot on an always-on host such as Railway, Render, Fly.io, or a VPS. Add the environment variables through the host's secret manager; never commit `.env`.
+Run the bot on an always-on host such as Google Cloud (Container-Optimized OS), Railway, Render, Fly.io, or a VPS. Add the environment variables through the host's secret manager or `.env`; never commit `.env`.
 
-A `Dockerfile` is included for container platforms. The application does not need inbound HTTP traffic—only outbound access to Discord and the selected AI provider.
+A `Dockerfile` and `docker-compose.yml` are included for container platforms. The application does not need inbound HTTP traffic—only outbound access to Discord and the selected AI provider.
+
+### Docker & Google Cloud Container-Optimized OS (COS)
+
+To deploy or update an existing instance on Google Cloud Container-Optimized OS (or any Docker host) without losing PostgreSQL data or reinstalling:
+
+#### 1. Rebuild and Restart with Docker Compose
+
+```bash
+# Pull latest code
+git pull origin main
+
+# Build the new image and recreate the container (zero downtime / seamless reload)
+docker compose up -d --build
+
+# Inspect logs to verify startup and fallback configuration
+docker compose logs -f ccai
+```
+
+The database volume (`postgres_data`) and local `.env` credentials are automatically preserved.
+
+#### 2. Standalone Docker Update (Without Compose)
+
+If your Container-Optimized OS VM runs the container standalone:
+
+```bash
+# Build the updated image
+docker build -t ccai:latest .
+
+# Stop and replace only the bot container (preserves existing volumes and .env)
+docker stop ccai-bot
+docker rm ccai-bot
+docker run -d \
+  --name ccai-bot \
+  --restart unless-stopped \
+  --env-file .env \
+  ccai:latest
+
+# Check logs
+docker logs -f ccai-bot
+```
 
 ### Discloud ZIP
 

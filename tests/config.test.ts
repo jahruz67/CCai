@@ -38,4 +38,92 @@ describe("loadConfig admin roles", () => {
     expect(config.ai.style).toBe("google-native");
     expect(config.ai.baseUrl).toBe("https://my-proxy.example.com/v1beta");
   });
+
+  it("parses fallback models from comma-separated AI_FALLBACK_MODELS", () => {
+    const config = loadConfig({
+      AI_API_KEY: "google-key",
+      AI_API_STYLE: "google-native",
+      AI_FALLBACK_ENABLED: "true",
+      AI_FALLBACK_MAX_RETRIES: "2",
+      AI_FALLBACK_MODELS: "gemini-2.5-flash-lite,gemini-2.5-flash",
+      AI_FALLBACK_TIMEOUT_MS: "15000",
+      AI_MODEL: "gemma-4-31b-it",
+      DISCORD_TOKEN: "test-token",
+    });
+
+    expect(config.ai.fallback?.enabled).toBe(true);
+    expect(config.ai.fallback?.maxRetries).toBe(2);
+    expect(config.ai.fallback?.timeoutMs).toBe(15_000);
+    expect(config.ai.fallback?.models).toHaveLength(2);
+    expect(config.ai.fallback?.models[0]?.model).toBe("gemini-2.5-flash-lite");
+    expect(config.ai.fallback?.models[0]?.style).toBe("google-native");
+    expect(config.ai.fallback?.models[0]?.apiKey).toBe("google-key");
+    expect(config.ai.fallback?.models[1]?.model).toBe("gemini-2.5-flash");
+    expect(config.ai.fallback?.models[1]?.style).toBe("google-native");
+  });
+
+  it("parses cross-provider fallback configurations using indexed env vars", () => {
+    const config = loadConfig({
+      AI_API_KEY: "google-key",
+      AI_API_STYLE: "google-native",
+      AI_FALLBACK_1_API_KEY: "google-key",
+      AI_FALLBACK_1_MODEL: "gemini-2.5-flash-lite",
+      AI_FALLBACK_2_API_KEY: "groq-key",
+      AI_FALLBACK_2_API_STYLE: "chat-completions",
+      AI_FALLBACK_2_BASE_URL: "https://api.groq.com/openai/v1",
+      AI_FALLBACK_2_MODEL: "llama-3.3-70b-versatile",
+      AI_FALLBACK_ENABLED: "true",
+      AI_FALLBACK_MODELS: "gemini-2.5-flash-lite,llama-3.3-70b-versatile",
+      AI_MODEL: "gemma-4-31b-it",
+      DISCORD_TOKEN: "test-token",
+    });
+
+    expect(config.ai.fallback?.models).toHaveLength(2);
+    expect(config.ai.fallback?.models[0]?.model).toBe("gemini-2.5-flash-lite");
+    expect(config.ai.fallback?.models[0]?.style).toBe("google-native");
+    expect(config.ai.fallback?.models[0]?.apiKey).toBe("google-key");
+
+    expect(config.ai.fallback?.models[1]?.model).toBe("llama-3.3-70b-versatile");
+    expect(config.ai.fallback?.models[1]?.style).toBe("chat-completions");
+    expect(config.ai.fallback?.models[1]?.baseUrl).toBe("https://api.groq.com/openai/v1");
+    expect(config.ai.fallback?.models[1]?.apiKey).toBe("groq-key");
+  });
+
+  it("parses fallback models from AI_FALLBACK_CONFIG JSON array", () => {
+    const config = loadConfig({
+      AI_API_KEY: "default-key",
+      AI_API_STYLE: "responses",
+      AI_FALLBACK_CONFIG: JSON.stringify([
+        { model: "gemini-2.5-flash-lite", style: "google-native" },
+        {
+          apiKey: "deepseek-key",
+          baseUrl: "https://api.deepseek.com/v1",
+          model: "deepseek-chat",
+          style: "chat-completions",
+        },
+      ]),
+      AI_FALLBACK_ENABLED: "true",
+      AI_MODEL: "gpt-5-mini",
+      DISCORD_TOKEN: "test-token",
+    });
+
+    expect(config.ai.fallback?.models).toHaveLength(2);
+    expect(config.ai.fallback?.models[0]?.model).toBe("gemini-2.5-flash-lite");
+    expect(config.ai.fallback?.models[0]?.style).toBe("google-native");
+    expect(config.ai.fallback?.models[1]?.model).toBe("deepseek-chat");
+    expect(config.ai.fallback?.models[1]?.apiKey).toBe("deepseek-key");
+    expect(config.ai.fallback?.models[1]?.baseUrl).toBe("https://api.deepseek.com/v1");
+  });
+
+  it("respects AI_FALLBACK_ENABLED=false", () => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      AI_FALLBACK_ENABLED: "false",
+      AI_FALLBACK_MODELS: "gemini-2.5-flash-lite",
+      AI_MODEL: "gemma-4-31b-it",
+      DISCORD_TOKEN: "test-token",
+    });
+
+    expect(config.ai.fallback?.enabled).toBe(false);
+  });
 });

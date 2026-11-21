@@ -63,6 +63,19 @@ async function main(): Promise<void> {
   }
 
   const aiClient = new AiClient(config.ai, fetch, searchService);
+
+  // Log fallback configuration summary (no credentials)
+  const fbConfig = config.ai.fallback;
+  if (fbConfig?.enabled && fbConfig.models.length > 0) {
+    const names = fbConfig.models.map((m) => `${m.model} (${m.style ?? config.ai.style})`).join(", ");
+    console.log(
+      `AI fallback enabled: primary=${config.ai.model} (${config.ai.style}) | fallbacks=[${names}] maxRetries=${fbConfig.maxRetries}`,
+    );
+  } else {
+    console.log(
+      `AI fallback disabled: primary=${config.ai.model} (${config.ai.style})`,
+    );
+  }
   const assistant = new AssistantService(
     aiClient,
     conversations,

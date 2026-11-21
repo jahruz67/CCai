@@ -1,0 +1,62 @@
+services:
+  ccai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_APPLICATION_ID=${DISCORD_APPLICATION_ID:-}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}
+      - DISCORD_GUILD_MEMBERS_INTENT=${DISCORD_GUILD_MEMBERS_INTENT:-false}
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_API_STYLE=${AI_API_STYLE:-responses}
+      - AI_MODEL=${AI_MODEL:-gpt-5-mini}
+      - AI_BASE_URL=${AI_BASE_URL:-}
+      - AI_FALLBACK_ENABLED=${AI_FALLBACK_ENABLED:-true}
+      - AI_FALLBACK_MODELS=${AI_FALLBACK_MODELS:-}
+      - AI_FALLBACK_MAX_RETRIES=${AI_FALLBACK_MAX_RETRIES:-1}
+      - AI_FALLBACK_TIMEOUT_MS=${AI_FALLBACK_TIMEOUT_MS:-15000}
+      - AI_FALLBACK_CIRCUIT_BREAKER_THRESHOLD=${AI_FALLBACK_CIRCUIT_BREAKER_THRESHOLD:-0}
+      - AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS=${AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS:-60000}
+      - AI_FALLBACK_CONFIG=${AI_FALLBACK_CONFIG:-}
+      - AI_FALLBACK_API_KEY=${AI_FALLBACK_API_KEY:-}
+      - AI_FALLBACK_BASE_URL=${AI_FALLBACK_BASE_URL:-}
+      - AI_FALLBACK_API_STYLE=${AI_FALLBACK_API_STYLE:-}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - MEMORY_ENABLED=${MEMORY_ENABLED:-true}
+      - BOT_PREFIX=${BOT_PREFIX:-cc}
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-duckduckgo}
+      - SEARCH_MAX_RESULTS=${SEARCH_MAX_RESULTS:-5}
+      - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-3}
+      - CHAT_HISTORY_ENABLED=${CHAT_HISTORY_ENABLED:-true}
+      - REPLY_CONTEXT_ENABLED=${REPLY_CONTEXT_ENABLED:-true}
+      - AI_ADMIN_ROLES=${AI_ADMIN_ROLES:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  # Optional local PostgreSQL service for persistent memory if not using remote Aiven / Cloud SQL
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ccai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ccaipassword}
+      POSTGRES_DB: ${POSTGRES_DB:-ccai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ccai} -d ${POSTGRES_DB:-ccai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - local-db
+
+volumes:
+  postgres_data:

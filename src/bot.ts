@@ -14,6 +14,7 @@ import {
   AiProviderError,
   AiRefusalError,
   AiTimeoutError,
+  AiAllModelsFailedError,
 } from "./ai-client.js";
 import {
   AssistantBusyError,
@@ -927,6 +928,9 @@ function userFacingError(error: unknown): string {
   }
   if (error instanceof AiIncompleteResponseError) {
     return "I couldn’t finish that answer. Try a shorter or simpler question.";
+  }
+  if (error instanceof AiAllModelsFailedError) {
+    return "All AI models are currently unavailable. Please try again shortly.";
   }
   if (error instanceof AiProviderError) {
     if (error.status === 401 || error.status === 403) {

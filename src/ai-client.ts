@@ -16,45 +16,34 @@ import {
   GEMINI_WEB_SEARCH_TOOL,
   isGemmaModel,
 } from "./providers/google-native-provider.js";
-
-export class AiProviderError extends Error {
-  public constructor(
-    message: string,
-    public readonly status: number,
-    public readonly requestId?: string,
-  ) {
-    super(message);
-    this.name = "AiProviderError";
-  }
-}
-
-export class AiTimeoutError extends Error {
-  public constructor() {
-    super("The AI provider request timed out.");
-    this.name = "AiTimeoutError";
-  }
-}
-
-export class AiNetworkError extends Error {
-  public constructor() {
-    super("The AI provider could not be reached.");
-    this.name = "AiNetworkError";
-  }
-}
-
-export class AiRefusalError extends Error {
-  public constructor() {
-    super("The AI provider refused the request.");
-    this.name = "AiRefusalError";
-  }
-}
-
-export class AiIncompleteResponseError extends Error {
-  public constructor(public readonly reason?: string) {
-    super("The AI provider could not finish the response.");
-    this.name = "AiIncompleteResponseError";
-  }
-}
+import {
+  AiAllModelsFailedError,
+  AiIncompleteResponseError,
+  AiNetworkError,
+  AiProviderError,
+  AiRefusalError,
+  AiTimeoutError,
+} from "./ai-errors.js";
+export {
+  AiAllModelsFailedError,
+  AiIncompleteResponseError,
+  AiNetworkError,
+  AiProviderError,
+  AiRefusalError,
+  AiTimeoutError,
+};
+import {
+  FallbackOrchestrator,
+  type FallbackOrchestratorOptions,
+} from "./fallback-orchestrator.js";
+export {
+  canFallbackToCandidate,
+  CircuitBreaker,
+  classifyError,
+  FallbackOrchestrator,
+  resolveCandidates,
+  sleep,
+} from "./fallback-orchestrator.js";
 
 export {
   extractChatCompletionsText,
@@ -67,14 +56,29 @@ export {
 };
 
 export class AiClient {
+  private readonly fallback: FallbackOrchestrator | null;
   private readonly provider: AiProvider;
 
   public constructor(
     private readonly config: BotConfig["ai"],
     private readonly fetcher: FetchLike = fetch,
     private readonly searchService?: SearchService,
+    fallbackOptions?: FallbackOrchestratorOptions,
   ) {
     this.provider = createAiProvider(this.config, this.fetcher, this.searchService);
+
+    const fbConfig = this.config.fallback;
+    if (fbConfig && fbConfig.enabled && fbConfig.models.length > 0) {
+      this.fallback = new FallbackOrchestrator(
+        this.config,
+        fbConfig,
+        this.fetcher,
+        this.searchService,
+        fallbackOptions,
+      );
+    } else {
+      this.fallback = null;
+    }
   }
 
   public async generate(
@@ -85,6 +89,17 @@ export class AiClient {
       throw new Error("At least one non-empty chat message is required.");
     }
 
+    if (this.fallback) {
+      return this.fallback.generate(messages, externalSignal);
+    }
+
+    return this.generateDirect(messages, externalSignal);
+  }
+
+  private async generateDirect(
+    messages: readonly ChatMessage[],
+    externalSignal?: AbortSignal,
+  ): Promise<string> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
     timeout.unref?.();
