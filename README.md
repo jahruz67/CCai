@@ -1,7 +1,13 @@
 # CCai
 
 
-[![Add to Discord](https://img.shields.io/badge/Add%20CCai%20to%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/oauth2/authorize?client_id=1539780033848283299)
+<a href="https://discord.com/oauth2/authorize?client_id=1539780033848283299">
+  <img
+    src="https://img.shields.io/badge/Add%20CCai%20to%20Discord-5865F2?style=flat-square&logo=discord&logoColor=white"
+    alt="Add CCai to Discord"
+    width="180"
+  />
+</a>
 
 
 ![C.C. from Code Geass holding pizza](./CC-and-Pizza-Hut-from-Code-Geass.jpg)
