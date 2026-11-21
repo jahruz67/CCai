@@ -1,6 +1,8 @@
-# CC Discord Bot
+# CCai
 
-> **Website:** A responsive product site lives in [`site/`](./site). Push changes on `main` to publish it through the included GitHub Pages workflow.
+
+[![Add to Discord](https://img.shields.io/badge/Add%20to-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/oauth2/authorize?client_id=1539780033848283299)
+
 
 ![C.C. from Code Geass holding pizza](./CC-and-Pizza-Hut-from-Code-Geass.jpg)
 
