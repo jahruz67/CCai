@@ -107,15 +107,22 @@ export type ManagementAction = z.infer<typeof managementActionSchema>;
 export type ManagementPlan = z.infer<typeof managementPlanSchema>;
 
 export interface ManagementPlanner {
-  planServerManagement(request: string, serverSnapshot: string): Promise<ManagementPlan>;
+  planServerManagement(
+    request: string,
+    serverSnapshot: string,
+    signal?: AbortSignal,
+    replyContext?: string,
+  ): Promise<ManagementPlan>;
 }
 
 export type ManageCommand =
   | { kind: "cancel" }
-  | { kind: "confirm" }
-  | { kind: "request"; request: string };
+  | { kind: "confirm"; messageId?: string }
+  | { kind: "request"; request: string; replyContext?: string };
 
 interface PendingPlan {
+  confirmationMessageId?: string;
+  requestMessageId?: string;
   channelId: string;
   expiresAt: number;
   guildId: string;
@@ -235,6 +242,7 @@ export class ServerManager {
     guild: Guild,
     member: GuildMember,
     channelId: string,
+    requestMessageId?: string,
   ): Promise<string> {
     if (!isAuthorizedAdministrator(member, this.adminRoleIds, this.adminRoleNames)) {
       return "You are not authorized to manage this server through CC. The server owner must add one of your role IDs or exact role names to `AI_ADMIN_ROLES`.";
@@ -250,6 +258,9 @@ export class ServerManager {
 
     if (command.kind === "confirm") {
       const pending = this.pending.get(key);
+      if (command.messageId && pending?.confirmationMessageId !== command.messageId) {
+        return "That message does not have a pending plan to confirm.";
+      }
       if (!pending || pending.expiresAt <= Date.now()) {
         this.pending.delete(key);
         return "There is no pending plan to confirm. Create one with `cc manage <request>`.";
@@ -265,6 +276,8 @@ export class ServerManager {
     const plan = await this.planner.planServerManagement(
       command.request,
       buildGuildSnapshot(guild),
+      undefined,
+      command.replyContext,
     );
     const hasMutation = plan.actions.some((action) => !READ_ONLY_ACTIONS.has(action.type));
     if (!hasMutation) {
@@ -272,13 +285,34 @@ export class ServerManager {
     }
 
     this.pending.set(key, {
+      requestMessageId,
       channelId,
       expiresAt: Date.now() + 5 * 60_000,
       guildId: guild.id,
       plan,
       requestedBy: member.id,
     });
-    return `${formatPlan(plan)}\n\nNo changes have been made. Run \`cc manage confirm\` within 5 minutes to execute this exact plan, or \`cc manage cancel\`.`;
+    const reactionHint = requestMessageId ? " or react 👍 to this plan message" : "";
+    return `${formatPlan(plan)}\n\nNo changes have been made. Run \`cc manage confirm\`${reactionHint} within 5 minutes to execute this exact plan, or \`cc manage cancel\`.`;
+  }
+
+  public bindConfirmationMessage(
+    guildId: string,
+    userId: string,
+    requestMessageId: string,
+    confirmationMessageId: string,
+  ): boolean {
+    const pending = this.pending.get(`${guildId}:${userId}`);
+    if (!pending || pending.requestMessageId !== requestMessageId || pending.expiresAt <= Date.now()) {
+      return false;
+    }
+    pending.confirmationMessageId = confirmationMessageId;
+    return true;
+  }
+
+  public hasReactionConfirmation(guildId: string, userId: string, messageId: string): boolean {
+    this.sweep();
+    return this.pending.get(`${guildId}:${userId}`)?.confirmationMessageId === messageId;
   }
 
   private sweep(): void {

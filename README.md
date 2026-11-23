@@ -121,6 +121,8 @@ cc manage cancel
 
 Read-only plans run immediately. Any plan that changes Discord is previewed
 and stored for five minutes; `cc manage confirm` executes that exact plan.
+For prefix commands, the requester can also react 👍 to the bot's plan message
+to confirm it. Other users' reactions and expired or replaced plans are ignored.
 The equivalent slash commands are `/manage request`, `/manage confirm`, and
 `/manage cancel`. Discord still enforces the bot role's permission and role
 hierarchy, so place the bot role above roles and members it must manage.

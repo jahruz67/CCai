@@ -71,10 +71,11 @@ export function createDiscordClient(
         ? [GatewayIntentBits.GuildMembers]
         : []),
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildMessageReactions,
       GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
     ],
-    partials: [Partials.Channel],
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
     makeCache: Options.cacheWithLimits({
       ApplicationCommandManager: 0,
       BaseGuildEmojiManager: 0,
@@ -113,6 +114,29 @@ export function createDiscordClient(
     void handleMessage(client, config, assistant, serverManager, memoryStore, message).catch((error) => {
       logRuntimeError("message handler", error);
     });
+  });
+
+  client.on(Events.MessageReactionAdd, (reaction, user) => {
+    const message = reaction.message;
+    const guild = message.guild;
+    if (user.bot || reaction.emoji.id || reaction.emoji.name !== "👍" || !guild ||
+        !serverManager.hasReactionConfirmation(guild.id, user.id, message.id)) {
+      return;
+    }
+    void (async () => {
+      try {
+        const member = await guild.members.fetch(user.id);
+        const result = await serverManager.handle(
+          { kind: "confirm", messageId: message.id }, guild, member, message.channelId,
+        );
+        const planMessage = message.partial ? await message.fetch() : message;
+        await sendMessageChunks(planMessage, result);
+      } catch (error) {
+        logAssistantError(error);
+        const planMessage = message.partial ? await message.fetch() : message;
+        await safeMessageReply(planMessage, managementFacingError(error));
+      }
+    })().catch((error) => logRuntimeError("management reaction handler", error));
   });
 
   client.on(Events.InteractionCreate, (interaction) => {
@@ -216,6 +240,9 @@ async function handleMessage(
 
   const manageCommand = parseManageCommand(parsed.text);
   if (manageCommand) {
+    if (manageCommand.kind === "request") {
+      manageCommand.replyContext = replyContext?.contextText;
+    }
     if (!message.guild) {
       await safeMessageReply(message, "Server management is only available inside a server.");
       return;
@@ -228,8 +255,14 @@ async function handleMessage(
         message.guild,
         member,
         message.channelId,
+        message.id,
       );
-      await sendMessageChunks(message, result);
+      const planMessage = await sendMessageChunks(message, result);
+      if (serverManager.bindConfirmationMessage(message.guild.id, member.id, message.id, planMessage.id)) {
+        await planMessage.react("👍").catch((error) => {
+          logRuntimeError("management confirmation reaction", error);
+        });
+      }
     } catch (error) {
       logAssistantError(error);
       await safeMessageReply(message, managementFacingError(error));
@@ -870,17 +903,17 @@ function startTyping(message: Message): () => void {
   return () => clearInterval(interval);
 }
 
-async function sendMessageChunks(message: Message, content: string): Promise<void> {
+async function sendMessageChunks(message: Message, content: string): Promise<Message> {
   const chunks = splitDiscordMessage(suppressUrlEmbeds(content));
   const firstChunk = chunks.shift() ?? "I could not generate a response.";
-  await message.reply({
+  const reply = await message.reply({
     allowedMentions: SAFE_MENTIONS,
     content: firstChunk,
     flags: MessageFlags.SuppressEmbeds,
   });
 
   if (!("send" in message.channel)) {
-    return;
+    return reply;
   }
 
   for (const chunk of chunks) {
@@ -890,6 +923,7 @@ async function sendMessageChunks(message: Message, content: string): Promise<voi
       flags: MessageFlags.SuppressEmbeds,
     });
   }
+  return reply;
 }
 
 async function safeMessageReply(message: Message, content: string): Promise<void> {
