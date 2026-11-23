@@ -14,6 +14,7 @@ export interface MemoryEntry {
 
 export interface MemoryStoreOptions {
   databaseUrl?: string;
+  ssl?: boolean;
   enabled?: boolean;
   maxKeyChars?: number;
   maxPerScope?: number;
@@ -54,15 +55,18 @@ export class MemoryStore {
       if (options.pool) {
         this.pool = options.pool;
       } else if (rawUrl) {
-        // Strip sslmode parameter from query string so node-postgres pg.Pool
-        // respects our explicit ssl: { rejectUnauthorized: false } config for Aiven
-        const cleanUrl = rawUrl.replace(/[?&]sslmode=[^&]+/i, "");
+        // URL SSL options override pg's explicit config. DATABASE_SSL controls
+        // TLS even when a provider's connection URL contains SSL parameters.
+        const cleanUrl = new URL(rawUrl);
+        for (const key of ["sslmode", "ssl", "sslcert", "sslkey", "sslrootcert"]) {
+          cleanUrl.searchParams.delete(key);
+        }
         this.pool = new Pool({
-          connectionString: cleanUrl,
+          connectionString: cleanUrl.toString(),
           connectionTimeoutMillis: 10_000,
           idleTimeoutMillis: 30_000,
           max: 3,
-          ssl: { rejectUnauthorized: false },
+          ssl: options.ssl ? { rejectUnauthorized: false } : false,
         });
       }
     }

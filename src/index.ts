@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   const cooldown = new Cooldown(config.cooldownMs);
   const memoryStore = new MemoryStore({
     databaseUrl: config.memory.databaseUrl,
+    ssl: config.memory.ssl,
     enabled: config.memory.enabled,
     maxKeyChars: config.memory.maxKeyChars,
     maxPerScope: config.memory.maxPerScope,

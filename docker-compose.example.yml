@@ -3,6 +3,7 @@
 services:
   ccai:
     image: ${CCAI_IMAGE:-ghcr.io/jahruz67/ccai:latest}
+    pull_policy: always
     restart: unless-stopped
     env_file:
       - .env

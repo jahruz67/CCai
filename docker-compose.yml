@@ -1,8 +1,7 @@
 services:
   ccai:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${CCAI_IMAGE:-ghcr.io/jahruz67/ccai:latest}
+    pull_policy: always
     restart: unless-stopped
     env_file:
       - .env
@@ -32,6 +31,7 @@ services:
       - AI_FALLBACK_BASE_URL=${AI_FALLBACK_BASE_URL:-}
       - AI_FALLBACK_API_STYLE=${AI_FALLBACK_API_STYLE:-}
       - DATABASE_URL=${DATABASE_URL:-}
+      - DATABASE_SSL=${DATABASE_SSL:-false}
       - MEMORY_ENABLED=${MEMORY_ENABLED:-true}
       - BOT_PREFIX=${BOT_PREFIX:-cc}
       - SEARCH_PROVIDER=${SEARCH_PROVIDER:-duckduckgo}

@@ -1,7 +1,59 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 
+describe("loadConfig database SSL", () => {
+  it.each([
+    [undefined, false],
+    ["false", false],
+    ["true", true],
+  ])("parses DATABASE_SSL=%s as %s", (value, expected) => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+      DATABASE_URL: "postgresql://ccai:password@postgres:5432/ccai",
+      DATABASE_SSL: value,
+    });
+
+    expect(config.memory.enabled).toBe(true);
+    expect(config.memory.ssl).toBe(expected);
+  });
+
+  it("rejects invalid DATABASE_SSL values", () => {
+    expect(() => loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+      DATABASE_SSL: "yes",
+    })).toThrow("DATABASE_SSL");
+  });
+
+  it("preserves the legacy database URL and memory toggle", () => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+      MEMORY_DATABASE_URL: "postgresql://ccai:password@postgres:5432/ccai",
+      MEMORY_ENABLED: "false",
+      DATABASE_SSL: "true",
+    });
+
+    expect(config.memory.databaseUrl).toContain("@postgres:5432/ccai");
+    expect(config.memory.enabled).toBe(false);
+    expect(config.memory.ssl).toBe(true);
+  });
+});
+
 describe("loadConfig admin roles", () => {
+  it("accepts empty optional provider URLs supplied by Docker Compose", () => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+      AI_API_STYLE: "google-native",
+      AI_BASE_URL: "",
+      AI_FALLBACK_BASE_URL: "",
+    });
+
+    expect(config.ai.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta");
+  });
+
   it("separates Discord role IDs from case-insensitive exact names", () => {
     const config = loadConfig({
       AI_ADMIN_ROLES: "123456789012345678, Senior Admin,MOD TEAM",

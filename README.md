@@ -47,6 +47,9 @@ This version intentionally has no image generation, music, voice, payments, dash
 
 ## Requirements
 
+For deployment with Docker, use Docker Engine and the Docker Compose v2 plugin;
+Node.js and pnpm are only needed when running or building from source.
+
 - Node.js 24.17 or newer.
 - pnpm 11.
 - A Discord application and bot token.
@@ -146,8 +149,15 @@ To allow users and servers to teach the bot abbreviations, definitions, and fact
 ```dotenv
 # Aiven PostgreSQL Service URI
 DATABASE_URL=postgres://avnadmin:YOUR_PASSWORD@YOUR_HOST.aivencloud.com:PORT/defaultdb?sslmode=require
+DATABASE_SSL=true
 MEMORY_ENABLED=true
 ```
+
+`DATABASE_SSL` defaults to `false` for local Docker PostgreSQL. Set it to `true`
+for Aiven or another database that requires TLS. This setting takes precedence
+over SSL parameters such as `sslmode` in `DATABASE_URL`, so existing remote
+deployments must add `DATABASE_SSL=true` when adopting this update. The existing
+Aiven TLS behavior is retained when enabled.
 
 When configured, the bot automatically creates the `memories` table on startup and supports:
 - `cc remember <key> = <value>` (Personal) or `cc remember [server] <key> = <value>` (Server-wide)
@@ -376,6 +386,10 @@ cc clear
 | `ALLOWED_CHANNEL_IDS` | blank | Optional comma-separated channel allowlist |
 | `AI_ADMIN_ROLES` | blank | Comma-separated role IDs or exact names authorized for server management; server owner is always allowed |
 | `DISCORD_GUILD_MEMBERS_INTENT` | `false` | Request the privileged Server Members gateway intent; required only for full member listings and must also be enabled in the Developer Portal |
+| `DATABASE_URL` | blank | PostgreSQL connection URL for persistent memory; `MEMORY_DATABASE_URL` remains supported as an alias |
+| `DATABASE_SSL` | `false` | Enable PostgreSQL TLS with `true` for Aiven or other TLS-only databases; overrides SSL parameters in the connection URL |
+| `MEMORY_ENABLED` | `true` | Enable persistent memory when a database URL is configured |
+| `CCAI_IMAGE` | `ghcr.io/jahruz67/ccai:latest` | Compose image; optionally pin a published build tag or use a fork |
 | `AI_TIMEOUT_MS` | `45000` | Provider request timeout |
 | `AI_MAX_OUTPUT_TOKENS` | `800` | Provider output cap |
 | `AI_REASONING_EFFORT` | `off` | Optional `none`, `low`, `medium`, or `high` reasoning mode |
@@ -414,18 +428,23 @@ A `Dockerfile` and `docker-compose.yml` are included for container platforms. Th
 ### Published Docker image
 
 The [Publish Docker image workflow](.github/workflows/docker-release.yml) publishes
-to `ghcr.io/jahruz67/ccai` for `linux/amd64` and `linux/arm64`. It runs only when
-manually triggered; pushes, Git tags, and GitHub releases do not trigger it.
+`ghcr.io/jahruz67/ccai:latest` automatically after every push or merge to `main`,
+for both `linux/amd64` and `linux/arm64`. No Docker build runs on the deployment
+host. The workflow uses `GITHUB_TOKEN` with package write permission; no registry
+secrets are required.
 
-To publish a version after the workflow is on the default branch:
+Before publishing, the workflow runs TypeScript checking, all unit tests, a
+production build, and a Docker integration test. The integration test uses a
+temporary Compose project and local registry, saves a PostgreSQL memory, and
+runs the update command below against a replacement image. It checks that the
+bot container changes while the PostgreSQL container, start time, restart count,
+volume mount, and saved memory stay unchanged. Only this disposable test
+project's containers and volumes are removed afterward. Pull requests targeting
+`main` run these checks without publishing.
 
-1. Open **Actions → Publish Docker image → Run workflow**.
-2. Select the branch containing the code to publish. No version input is needed.
-3. Leave **Also update the latest tag** enabled for the default deployment image,
-   or disable it for a preview release.
-4. Run the workflow. It builds the existing `Dockerfile` and pushes an automatic
-   tag, plus `latest` when enabled, using `GITHUB_TOKEN`; no registry secrets are
-   required.
+Manual publishing remains available through **Actions → Publish Docker image →
+Run workflow**. Leave **Also update the latest tag** enabled to update the
+deployment image, or disable it for a preview build.
 
 Each run gets a tag such as `build-42-1`, using the workflow run number and attempt
 number. Reruns get a new attempt number. The published image reference appears in
@@ -436,76 +455,115 @@ package settings so users can pull it without logging in. If the package already
 exists, ensure this repository has Actions write access to it. Forks publish to
 `ghcr.io/<owner>/<repository>` with the owner and repository names lowercased.
 
-#### Run a published image with Compose
+#### Initial deployment
 
-Install Docker with the Compose plugin. Download
-[`docker-compose.example.yml`](docker-compose.example.yml) and
-[`.env.example`](.env.example) into an empty directory, then rename them:
+Install Docker Engine with the Compose v2 plugin (`docker compose version`). Put
+[`docker-compose.yml`](docker-compose.yml) and [`.env.example`](.env.example) in
+your deployment directory. For a **new deployment only**, create `.env`:
 
 ```bash
-cp docker-compose.example.yml compose.yaml
 cp .env.example .env
 ```
 
 Edit `.env` with your Discord credentials and AI provider settings as described
 above. Set `DATABASE_URL` to an accessible PostgreSQL database, or leave it empty
-to run without persistent memory. The example runs only the bot. To pin a release
-instead of following `latest`, add this to `.env` (replace the tag with a published
-version; change the image path when using a fork):
-
-```dotenv
-CCAI_IMAGE=ghcr.io/jahruz67/ccai:build-42-1
-```
+to run without persistent memory. For a remote database requiring TLS, also set
+`DATABASE_SSL=true`.
 
 ```bash
-docker compose pull
+docker compose pull ccai
 # Register slash commands on initial setup and when their definitions change.
-docker compose run --rm ccai node dist/register-commands.js
-docker compose up -d
+docker compose run --rm --no-deps ccai node dist/register-commands.js
+docker compose up -d ccai
 docker compose logs -f ccai
 ```
 
 Registration uses `DISCORD_APPLICATION_ID` and `DISCORD_TOKEN`; setting
 `DISCORD_GUILD_ID` targets that server, while leaving it empty registers globally.
-To update, change `CCAI_IMAGE` if pinned, then run `docker compose pull` and
-`docker compose up -d` again. The existing `docker-compose.yml` remains available
-for building from source and using its optional local PostgreSQL service.
+[`docker-compose.example.yml`](docker-compose.example.yml) is also available for
+a minimal bot-only deployment with a remote database.
 
-### Docker & Google Cloud Container-Optimized OS (COS)
+For the optional **local PostgreSQL** service, configure `.env` first (choose a
+strong password and use the same password in both values; URL-encode it in the
+connection URL if needed):
 
-To deploy or update an existing instance on Google Cloud Container-Optimized OS (or any Docker host) without losing PostgreSQL data or reinstalling:
-
-#### 1. Rebuild and Restart with Docker Compose
-
-```bash
-# Pull latest code
-git pull origin main
-
-# Build the new image and recreate the container (zero downtime / seamless reload)
-docker compose up -d --build
-
-# Inspect logs to verify startup and fallback configuration
-docker compose logs -f ccai
+```dotenv
+POSTGRES_USER=ccai
+POSTGRES_PASSWORD=replace-with-a-strong-password
+POSTGRES_DB=ccai
+DATABASE_URL=postgresql://ccai:replace-with-a-strong-password@postgres:5432/ccai
+DATABASE_SSL=false
+MEMORY_ENABLED=true
 ```
 
-The database volume (`postgres_data`) and local `.env` credentials are automatically preserved.
-
-#### 2. Standalone Docker Update (Without Compose)
-
-If your Container-Optimized OS VM runs the container standalone:
+Start the database and bot once with:
 
 ```bash
-# Build the updated image
-docker build -t ccai:latest .
+docker compose --profile local-db up -d
+```
 
-# Stop and replace only the bot container (preserves existing volumes and .env)
+The `postgres:16-alpine` image, `local-db` profile, health check, restart policies,
+and `postgres_data:/var/lib/postgresql/data` volume are unchanged.
+
+#### Update an existing deployment
+
+When adopting this change for the first time, replace only your deployed Compose
+file with the updated `docker-compose.yml`. Keep the existing deployment directory,
+Compose project name (including any `-p` or `COMPOSE_PROJECT_NAME` setting), `.env`,
+PostgreSQL credentials, and volume. If your database requires TLS, add
+`DATABASE_SSL=true` to the existing `.env`. Do not replace it with `.env.example`.
+
+After a merge to `main`, wait for **Publish Docker image** to succeed, then run
+this single command from that same deployment directory:
+
+```bash
+docker compose pull ccai && docker compose up -d --no-deps ccai
+```
+
+This pulls `ghcr.io/jahruz67/ccai:latest` and replaces only the bot container.
+`--no-deps` leaves the PostgreSQL container running, and the named database volume
+is reused. The Compose file uses `pull_policy: always`. Bot updates require no
+source checkout, `git pull`, dependency installation, or local image build.
+There is a brief bot restart; process-local conversation history resets, while
+PostgreSQL memories remain stored.
+
+Do not use `docker compose down -v` or delete/prune the database volume. Changing
+the project name or deployment directory without retaining the original project
+name can select a different named volume and make the existing data appear absent.
+
+To pin or roll back to a previously published build, set `CCAI_IMAGE` in `.env`,
+then run the same update command. Remove that setting to follow `latest` again:
+
+```dotenv
+CCAI_IMAGE=ghcr.io/jahruz67/ccai:build-42-1
+```
+
+### Google Cloud Container-Optimized OS (COS)
+
+Use the same published image and Compose update command on COS. Both x86-64 and
+Arm VMs are supported by the image. Docker Engine and a working Compose v2 plugin
+are the only runtime tooling required; do not install Node.js, pnpm, or build
+tools on the VM. COS may need the Compose plugin provisioned separately.
+
+Keep the Compose file and `.env` in a writable persistent directory on the VM's
+stateful disk, and retain the existing Docker data disk and project name. The bot
+requires outbound access to GHCR for image pulls, Discord, your AI provider, and
+any remote PostgreSQL database; it does not need inbound HTTP ports. If your setup
+requires `sudo docker`, use it consistently for both commands in the update line.
+
+For a standalone Docker deployment without Compose, preserve the existing network,
+environment, volume mounts, and other `docker run` options when replacing only the
+bot container. For example, with a remote database and no custom options:
+
+```bash
+docker pull ghcr.io/jahruz67/ccai:latest
 docker stop ccai-bot
 docker rm ccai-bot
 docker run -d \
   --name ccai-bot \
   --restart unless-stopped \
   --env-file .env \
-  ccai:latest
+  ghcr.io/jahruz67/ccai:latest
 
 # Check logs
 docker logs -f ccai-bot

@@ -32,6 +32,11 @@ Core Principles:
 - Do not make important explanations overly brief; maintain necessary depth, nuance, and clarity for critical concepts.
 - Provide longer, in-depth responses only when the user explicitly asks for more detail or when the topic genuinely necessitates a longer answer.`;
 
+const optionalUrl = z.preprocess(
+  (value) => typeof value === "string" && !value.trim() ? undefined : value,
+  z.string().trim().url().optional(),
+);
+
 const environmentSchema = z.object({
   AI_API_KEY: z.string().trim().min(1, "AI_API_KEY is required"),
   AI_API_STYLE: z
@@ -40,11 +45,7 @@ const environmentSchema = z.object({
   AI_CHAT_TOKEN_FIELD: z
     .enum(["auto", "max_tokens", "max_completion_tokens"])
     .default("auto"),
-  AI_BASE_URL: z
-    .string()
-    .trim()
-    .url()
-    .optional(),
+  AI_BASE_URL: optionalUrl,
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(16_384).default(800),
   AI_MODEL: z.string().trim().min(1).default("gpt-5-mini"),
   AI_REASONING_EFFORT: z
@@ -67,7 +68,7 @@ const environmentSchema = z.object({
   AI_FALLBACK_API_STYLE: z
     .enum(["responses", "chat-completions", "google-native"])
     .optional(),
-  AI_FALLBACK_BASE_URL: z.string().trim().url().optional(),
+  AI_FALLBACK_BASE_URL: optionalUrl,
   AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce
     .number()
     .int()
@@ -107,6 +108,10 @@ const environmentSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   COOLDOWN_SECONDS: z.coerce.number().min(0).max(300).default(3),
+  DATABASE_SSL: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   DATABASE_URL: z.string().trim().optional(),
   DISCORD_APPLICATION_ID: z.string().trim().optional(),
   DISCORD_GUILD_ID: z.string().trim().optional(),
@@ -214,6 +219,7 @@ export interface BotConfig {
   maxQuestionChars: number;
   memory: {
     databaseUrl?: string;
+    ssl: boolean;
     enabled: boolean;
     maxKeyChars: number;
     maxPerScope: number;
@@ -330,6 +336,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): BotCon
     maxQuestionChars: values.MAX_QUESTION_CHARS,
     memory: {
       ...(databaseUrl ? { databaseUrl } : {}),
+      ssl: values.DATABASE_SSL,
       enabled: isMemoryEnabled,
       maxKeyChars: values.MAX_MEMORY_KEY_CHARS,
       maxPerScope: values.MAX_MEMORIES_PER_SCOPE,
