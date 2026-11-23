@@ -13,12 +13,14 @@ import {
 } from "./ai-errors.js";
 import type { AiProvider, FetchLike } from "./providers/types.js";
 import { createAiProvider } from "./providers/factory.js";
+import type { GoogleNativeProviderOptions } from "./providers/google-native-provider.js";
 import type { SearchService } from "./search-provider.js";
 import type { ChatMessage } from "./types.js";
 
 export type FallbackLogger = (message: string) => void;
 
 export interface FallbackOrchestratorOptions {
+  googleOptions?: GoogleNativeProviderOptions;
   logger?: FallbackLogger;
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
@@ -282,6 +284,7 @@ export interface ResolvedCandidateConfig {
   maxOutputTokens: number;
   model: string;
   reasoningEffort: "off" | "none" | "low" | "medium" | "high";
+  retry?: BotConfig["ai"]["retry"];
   style: "responses" | "chat-completions" | "google-native";
   systemPrompt: string;
   timeoutMs: number;
@@ -299,6 +302,7 @@ export function resolveCandidates(
     maxOutputTokens: primaryConfig.maxOutputTokens,
     model: primaryConfig.model,
     reasoningEffort: primaryConfig.reasoningEffort,
+    retry: primaryConfig.retry,
     style: primaryConfig.style,
     systemPrompt: primaryConfig.systemPrompt,
     timeoutMs: primaryConfig.timeoutMs,
@@ -335,6 +339,7 @@ export function resolveCandidates(
       maxOutputTokens: f.maxOutputTokens ?? primaryConfig.maxOutputTokens,
       model: f.model,
       reasoningEffort: f.reasoningEffort ?? primaryConfig.reasoningEffort,
+      retry: primaryConfig.retry,
       style,
       systemPrompt: primaryConfig.systemPrompt,
       timeoutMs: f.timeoutMs ?? fallbackConfig.timeoutMs ?? 15_000,
@@ -375,6 +380,7 @@ export async function sleep(
 export class FallbackOrchestrator {
   private readonly candidates: ResolvedCandidateConfig[];
   private readonly circuitBreaker: CircuitBreaker;
+  private readonly googleOptions?: GoogleNativeProviderOptions;
   private readonly logger: FallbackLogger;
   private readonly maxRetries: number;
   private readonly providers = new Map<number, AiProvider>();
@@ -388,6 +394,7 @@ export class FallbackOrchestrator {
     private readonly searchService?: SearchService,
     options: FallbackOrchestratorOptions = {},
   ) {
+    this.googleOptions = options.googleOptions;
     this.logger = options.logger ?? ((msg) => console.log(msg));
     this.maxRetries = fallbackConfig.maxRetries;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 500;
@@ -518,8 +525,16 @@ export class FallbackOrchestrator {
             this.circuitBreaker.recordFailure();
           }
 
+          // The provider may have already consumed its same-model retry budget.
+          const retriesExhausted =
+            (error instanceof AiProviderError ||
+              error instanceof AiTimeoutError ||
+              error instanceof AiNetworkError) &&
+            error.retriesExhausted;
           const canRetrySame =
-            classification.isRetryableOnSameModel && attempt < totalAttempts;
+            classification.isRetryableOnSameModel &&
+            !retriesExhausted &&
+            attempt < totalAttempts;
           if (canRetrySame) {
             continue;
           }
@@ -569,6 +584,7 @@ export class FallbackOrchestrator {
         candidate as unknown as BotConfig["ai"],
         this.fetcher,
         this.searchService,
+        this.googleOptions,
       );
       this.providers.set(index, provider);
     }
@@ -626,7 +642,9 @@ export class FallbackOrchestrator {
           if (
             error instanceof AiProviderError ||
             error instanceof AiRefusalError ||
-            error instanceof AiIncompleteResponseError
+            error instanceof AiIncompleteResponseError ||
+            error instanceof AiTimeoutError ||
+            error instanceof AiNetworkError
           ) {
             reject(error);
             return;

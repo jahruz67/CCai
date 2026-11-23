@@ -3,12 +3,16 @@ import type { SearchService } from "../search-provider.js";
 import type { AiProvider, FetchLike } from "./types.js";
 import { ResponsesProvider } from "./responses-provider.js";
 import { ChatCompletionsProvider } from "./chat-completions-provider.js";
-import { GoogleNativeProvider } from "./google-native-provider.js";
+import {
+  GoogleNativeProvider,
+  type GoogleNativeProviderOptions,
+} from "./google-native-provider.js";
 
 export function createAiProvider(
   config: BotConfig["ai"],
   fetcher: FetchLike,
   searchService?: SearchService,
+  options?: GoogleNativeProviderOptions,
 ): AiProvider {
   switch (config.style) {
     case "responses":
@@ -16,7 +20,7 @@ export function createAiProvider(
     case "chat-completions":
       return new ChatCompletionsProvider(config, fetcher, searchService);
     case "google-native":
-      return new GoogleNativeProvider(config, fetcher, searchService);
+      return new GoogleNativeProvider(config, fetcher, searchService, options);
     default:
       throw new Error(`Unsupported AI API style: ${(config as { style: string }).style}`);
   }

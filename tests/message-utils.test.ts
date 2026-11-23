@@ -11,6 +11,7 @@ import {
   isImageAttachment,
   sanitizeUrl,
   splitDiscordMessage,
+  stripModelReasoning,
   suppressUrlEmbeds,
 } from "../src/message-utils.js";
 
@@ -55,6 +56,29 @@ describe("conversationKey", () => {
     expect(conversationKey("1", "2", "3")).not.toBe(
       conversationKey("1", "2", "4"),
     );
+  });
+});
+
+describe("stripModelReasoning", () => {
+  it.each([
+    ["<think>Private scratch work</think>\n42", "42"],
+    ["<THINKING>Private scratch work</THINKING>42", "42"],
+    ["<analysis>Private</analysis><reasoning>Private</reasoning>42", "42"],
+    ["<think>Outer <think>Inner</think> Outer</think>42", "42"],
+    ["Private scratch work</think>42", "42"],
+    ["<think>Truncated scratch work", ""],
+    ["42\n<think>Truncated scratch work", "42"],
+    ["<think>One</think>42<think>Two</think>", "42"],
+    ["<|channel>thought\nPrivate scratch work<channel|>42", "42"],
+    ["<|channel>analysis\nPrivate scratch work<|channel>final\n42", "42"],
+    ["<|channel>thought\nTruncated scratch work", ""],
+    ["I think the analysis is correct.", "I think the analysis is correct."],
+    ["Use `<think>` and `</think>` as tags.", "Use `<think>` and `</think>` as tags."],
+    ["```xml\n<think>Example</think>\n```", "```xml\n<think>Example</think>\n```"],
+    ["<think>Private\n```text\nscratch work\n```\n</think>42", "42"],
+    ["", ""],
+  ])("filters explicit reasoning in %j", (input, expected) => {
+    expect(stripModelReasoning(input)).toBe(expected);
   });
 });
 

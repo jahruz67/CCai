@@ -15,7 +15,15 @@ import {
   extractGoogleNativeText,
   GEMINI_WEB_SEARCH_TOOL,
   isGemmaModel,
+  type GoogleNativeProviderOptions,
 } from "./providers/google-native-provider.js";
+import {
+  type AiRetryConfig,
+  computeBackoffDelay,
+  DEFAULT_AI_RETRY_CONFIG,
+  extractServerRetryDelay,
+  isTransientGoogleError,
+} from "./retry-strategy.js";
 import {
   AiAllModelsFailedError,
   AiIncompleteResponseError,
@@ -31,6 +39,12 @@ export {
   AiProviderError,
   AiRefusalError,
   AiTimeoutError,
+  type AiRetryConfig,
+  computeBackoffDelay,
+  DEFAULT_AI_RETRY_CONFIG,
+  extractServerRetryDelay,
+  isTransientGoogleError,
+  type GoogleNativeProviderOptions,
 };
 import {
   FallbackOrchestrator,
@@ -55,6 +69,11 @@ export {
   WEB_SEARCH_TOOL_DEFINITION,
 };
 
+export interface AiClientOptions {
+  fallbackOptions?: FallbackOrchestratorOptions;
+  googleOptions?: GoogleNativeProviderOptions;
+}
+
 export class AiClient {
   private readonly fallback: FallbackOrchestrator | null;
   private readonly provider: AiProvider;
@@ -63,9 +82,19 @@ export class AiClient {
     private readonly config: BotConfig["ai"],
     private readonly fetcher: FetchLike = fetch,
     private readonly searchService?: SearchService,
-    fallbackOptions?: FallbackOrchestratorOptions,
+    options?: FallbackOrchestratorOptions | AiClientOptions,
   ) {
-    this.provider = createAiProvider(this.config, this.fetcher, this.searchService);
+    const fallbackOptions = options && "fallbackOptions" in options
+      ? options.fallbackOptions
+      : options as FallbackOrchestratorOptions | undefined;
+    const googleOptions = options?.googleOptions ?? fallbackOptions?.googleOptions;
+
+    this.provider = createAiProvider(
+      this.config,
+      this.fetcher,
+      this.searchService,
+      googleOptions,
+    );
 
     const fbConfig = this.config.fallback;
     if (fbConfig && fbConfig.enabled && fbConfig.models.length > 0) {
@@ -74,7 +103,10 @@ export class AiClient {
         fbConfig,
         this.fetcher,
         this.searchService,
-        fallbackOptions,
+        {
+          ...fallbackOptions,
+          googleOptions,
+        },
       );
     } else {
       this.fallback = null;
@@ -113,7 +145,9 @@ export class AiClient {
       if (
         error instanceof AiProviderError ||
         error instanceof AiRefusalError ||
-        error instanceof AiIncompleteResponseError
+        error instanceof AiIncompleteResponseError ||
+        error instanceof AiTimeoutError ||
+        error instanceof AiNetworkError
       ) {
         throw error;
       }

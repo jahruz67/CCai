@@ -3,6 +3,7 @@ import {
   cleanCitationMarkers,
   formatDiscordMath,
   formatSourceList,
+  stripModelReasoning,
 } from "../message-utils.js";
 import type { SearchService } from "../search-provider.js";
 import type { ChatMessage } from "../types.js";
@@ -157,6 +158,7 @@ export function extractResponsesText(data: unknown): string | undefined {
   const response = data as {
     output?: Array<{
       action?: { sources?: Array<{ url?: unknown }> };
+      channel?: unknown;
       content?: Array<{
         annotations?: Array<{ type?: unknown; url?: unknown }>;
         text?: unknown;
@@ -164,12 +166,14 @@ export function extractResponsesText(data: unknown): string | undefined {
       }>;
       name?: unknown;
       output?: unknown;
+      type?: unknown;
     }>;
     output_text?: unknown;
   };
 
   const outputText = response.output
-    ?.flatMap((item) => item.content ?? [])
+    ?.filter((item) => item.type !== "reasoning" && item.channel !== "analysis")
+    .flatMap((item) => item.content ?? [])
     .filter((content) => content.type === "output_text")
     .map((content) => (typeof content.text === "string" ? content.text : ""))
     .join("\n")
@@ -184,7 +188,7 @@ export function extractResponsesText(data: unknown): string | undefined {
     return undefined;
   }
 
-  const cleaned = cleanCitationMarkers(rawText);
+  const cleaned = cleanCitationMarkers(stripModelReasoning(rawText));
   if (!cleaned) {
     return undefined;
   }
@@ -208,16 +212,21 @@ export function extractResponsesText(data: unknown): string | undefined {
 export function extractResponseSourceUrls(response: {
   output?: Array<{
     action?: { sources?: Array<{ url?: unknown }> };
+    channel?: unknown;
     content?: Array<{
       annotations?: Array<{ type?: unknown; url?: unknown }>;
     }>;
     name?: unknown;
     output?: unknown;
+    type?: unknown;
   }>;
 }): string[] {
   const urls: string[] = [];
 
   for (const item of response.output ?? []) {
+    if (item.type === "reasoning" || item.channel === "analysis") {
+      continue;
+    }
     for (const content of item.content ?? []) {
       for (const annotation of content.annotations ?? []) {
         if (annotation.type === "url_citation") {

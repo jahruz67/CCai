@@ -40,6 +40,7 @@ It also responds to mentions, replies, DMs, `/ask`, and `/search`.
 - Discord-optimized math/LaTeX formatting and formula presentation.
 - No generated pings from model output.
 - Native Google Gemini & Gemma API support (`google-native`), OpenAI Responses API (`responses`), and generic Chat Completions mode (`chat-completions`) with tool calling.
+- **Google's Recommended API Retry and Backoff Strategy**: Automatically retries temporary HTTP 503 service overload errors using exponential backoff with jitter and server-provided retry delays (`AI_RETRY_ENABLED`, `AI_RETRY_MAX_ATTEMPTS=3`, `AI_RETRY_INITIAL_DELAY_MS=1000`, `AI_RETRY_MAX_DELAY_MS=4000`, `AI_REQUEST_TIMEOUT_MS=15000`).
 - **Configurable Automatic AI Model Fallback System**: When the primary model encounters recoverable failures (HTTP 503 overload, HTTP 429 rate limits, 502/504 gateways, or network timeouts), CCai automatically retries and falls back through configured backup models—including across different AI providers—without interrupting normal Discord conversations.
 
 This version intentionally has no image generation, music, voice, payments, dashboard, or permanent message storage.
@@ -194,6 +195,52 @@ AI_API_KEY=provider-key
 ```
 
 When using `chat-completions` or `google-native` (Gemini), the bot equips the AI model with a `web_search` tool function. When questions require live data, the AI searches DuckDuckGo / Tavily in real time, reads the snippets, and generates a grounded response with clickable citation links. Proactive DuckDuckGo search also injects live context for models without function calling.
+
+### Google's Recommended API Retry and Backoff Strategy
+
+Google's Gemini and Gemma API documentation explains:
+> *503 errors are unrelated to your quota and indicate our services are temporarily overloaded and can’t service your request.*
+
+Google recommends implementing **automatic retries with backoff**. CCai implements this exact strategy natively for Google's API:
+
+```dotenv
+# Enable automatic retries on temporary HTTP 503 overload
+AI_RETRY_ENABLED=true
+
+# Total attempts: 1 initial request + up to 2 retries (default: 3)
+AI_RETRY_MAX_ATTEMPTS=3
+
+# Initial delay for first retry attempt in milliseconds (default: 1000ms ~ 1s)
+AI_RETRY_INITIAL_DELAY_MS=1000
+
+# Maximum backoff delay cap in milliseconds (default: 4000ms ~ 4s)
+AI_RETRY_MAX_DELAY_MS=4000
+
+# Per-request timeout in milliseconds (default: 15000ms ~ 15s)
+AI_REQUEST_TIMEOUT_MS=15000
+```
+
+#### Expected Behavior
+
+When Google returns HTTP 503 (or `UNAVAILABLE` status), CCai automatically retries with exponential backoff and jitter:
+
+```text
+Request 1 → Google returns HTTP 503
+Wait approximately 1 second (~1000ms with jitter)
+
+Request 2 → Google returns HTTP 503
+Wait approximately 2 seconds (~2000ms with jitter)
+
+Request 3 → Google returns HTTP 200
+Return the successful response to Discord
+```
+
+- **Exponential Backoff with Jitter**: Delay increases exponentially (`initialDelay * 2^retryIndex`) capped by `AI_RETRY_MAX_DELAY_MS`. Proportional jitter (±20%) desynchronizes concurrent requests so bursts do not hammer Google's servers in lockstep.
+- **Server Retry Hints**: Honors server-provided `Retry-After` HTTP headers or Google RPC `RetryInfo` metadata (e.g. `retryDelay: "2s"`), bounded by configured safety limits.
+- **No Side Effects**: Retries operate at the API request level. They never duplicate Discord messages, repeat previously executed tool calls, or trigger premature server-management actions.
+- **Context Preservation**: Full conversation history, Discord reply context, PostgreSQL memories, and system instructions are preserved across all retry attempts.
+- **Credential-Safe Logging**: Logs retry attempts, HTTP status codes, and delays without exposing API keys, prompt content, or user data.
+- **Fallback Integration**: After the Google retry budget is exhausted, CCai switches to an eligible backup model without repeating that budget. Errors outside this retry strategy keep the existing fallback behavior: HTTP 429 switches immediately, while HTTP 502 can retry before switching.
 
 ### Automatic AI Model Fallbacks
 
@@ -363,6 +410,63 @@ This runs TypeScript checking, unit tests, and a production build.
 Run the bot on an always-on host such as Google Cloud (Container-Optimized OS), Railway, Render, Fly.io, or a VPS. Add the environment variables through the host's secret manager or `.env`; never commit `.env`.
 
 A `Dockerfile` and `docker-compose.yml` are included for container platforms. The application does not need inbound HTTP traffic—only outbound access to Discord and the selected AI provider.
+
+### Published Docker image
+
+The [Publish Docker image workflow](.github/workflows/docker-release.yml) publishes
+to `ghcr.io/jahruz67/ccai` for `linux/amd64` and `linux/arm64`. It runs only when
+manually triggered; pushes, Git tags, and GitHub releases do not trigger it.
+
+To publish a version after the workflow is on the default branch:
+
+1. Open **Actions → Publish Docker image → Run workflow**.
+2. Select the branch containing the code to publish and enter an image tag such
+   as `v0.1.0`. The image tag does not create a Git tag or GitHub release.
+3. Leave **Also update the latest tag** enabled for the default deployment image,
+   or disable it for a preview release. Use a tag other than `latest` for previews.
+4. Run the workflow. It builds the existing `Dockerfile` and pushes the requested
+   tag, plus `latest` when enabled, using `GITHUB_TOKEN`; no registry secrets are
+   required. Reusing a tag replaces the image associated with that tag.
+
+After the first publish, make the `ccai` container package **public** in its GitHub
+package settings so users can pull it without logging in. If the package already
+exists, ensure this repository has Actions write access to it. Forks publish to
+`ghcr.io/<owner>/<repository>` with the owner and repository names lowercased.
+
+#### Run a published image with Compose
+
+Install Docker with the Compose plugin. Download
+[`docker-compose.example.yml`](docker-compose.example.yml) and
+[`.env.example`](.env.example) into an empty directory, then rename them:
+
+```bash
+cp docker-compose.example.yml compose.yaml
+cp .env.example .env
+```
+
+Edit `.env` with your Discord credentials and AI provider settings as described
+above. Set `DATABASE_URL` to an accessible PostgreSQL database, or leave it empty
+to run without persistent memory. The example runs only the bot. To pin a release
+instead of following `latest`, add this to `.env` (replace the tag with a published
+version; change the image path when using a fork):
+
+```dotenv
+CCAI_IMAGE=ghcr.io/jahruz67/ccai:v0.1.0
+```
+
+```bash
+docker compose pull
+# Register slash commands on initial setup and when their definitions change.
+docker compose run --rm ccai node dist/register-commands.js
+docker compose up -d
+docker compose logs -f ccai
+```
+
+Registration uses `DISCORD_APPLICATION_ID` and `DISCORD_TOKEN`; setting
+`DISCORD_GUILD_ID` targets that server, while leaving it empty registers globally.
+To update, change `CCAI_IMAGE` if pinned, then run `docker compose pull` and
+`docker compose up -d` again. The existing `docker-compose.yml` remains available
+for building from source and using its optional local PostgreSQL service.
 
 ### Docker & Google Cloud Container-Optimized OS (COS)
 

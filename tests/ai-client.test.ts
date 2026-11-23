@@ -121,6 +121,81 @@ describe("AI response extraction", () => {
       }),
     ).toBe("42");
   });
+
+  it("excludes Google's thought parts from the final answer", () => {
+    expect(extractGoogleNativeText({
+      candidates: [{ content: { parts: [
+        { text: "Private scratch work", thought: true },
+        { text: "42", thought: false },
+        { text: "More private scratch work", thought: true },
+      ] } }],
+    })).toBe("42");
+    expect(extractGoogleNativeText({
+      candidates: [{ content: { parts: [{ text: "Private", thought: true }] } }],
+    })).toBeUndefined();
+  });
+
+  it("ignores reasoning fields and blocks in Chat Completions responses", () => {
+    expect(extractChatCompletionsText({ choices: [{ message: {
+      reasoning_content: "Private scratch work",
+      content: [
+        { type: "reasoning", text: "Private scratch work" },
+        { type: "thinking", text: "More private scratch work" },
+        { type: "text", text: "Private", thought: true },
+        { type: "text", text: "42" },
+      ],
+    } }] })).toBe("42");
+    expect(extractChatCompletionsText({ choices: [{ message: {
+      reasoning_content: "Private scratch work",
+      content: [{ type: "reasoning", text: "Private scratch work" }],
+    } }] })).toBeUndefined();
+  });
+
+  it("ignores Responses API reasoning items, analysis channels, and their citations", () => {
+    expect(extractResponsesText({ output: [
+      { type: "reasoning", content: [{ type: "output_text", text: "Private" }] },
+      { type: "message", channel: "analysis", content: [{
+        type: "output_text",
+        text: "Private scratch work",
+        annotations: [{ type: "url_citation", url: "https://private.example.test" }],
+      }] },
+      { type: "message", channel: "final", content: [{ type: "output_text", text: "42" }] },
+    ] })).toBe("42");
+  });
+});
+
+describe.each([
+  {
+    name: "Google Native",
+    extract: extractGoogleNativeText,
+    wrap: (text: string) => ({ candidates: [{ content: { parts: [{ text }] } }] }),
+  },
+  {
+    name: "Chat Completions",
+    extract: extractChatCompletionsText,
+    wrap: (text: string) => ({ choices: [{ message: { content: text } }] }),
+  },
+  {
+    name: "Chat Completions content blocks",
+    extract: extractChatCompletionsText,
+    wrap: (text: string) => ({ choices: [{ message: { content: [{ type: "text", text }] } }] }),
+  },
+  {
+    name: "Responses API",
+    extract: extractResponsesText,
+    wrap: (text: string) => ({ output_text: text }),
+  },
+])("$name reasoning filtering", ({ extract, wrap }) => {
+  it("keeps only the final answer", () => {
+    expect(extract(wrap("<think>Private scratch work</think>42"))).toBe("42");
+  });
+
+  it.each(["<think>Private scratch work</think>", "<think>Truncated scratch work"])(
+    "returns no answer for reasoning-only output %j",
+    (text) => {
+      expect(extract(wrap(text))).toBeUndefined();
+    },
+  );
 });
 
 describe("AiClient", () => {
@@ -438,7 +513,10 @@ describe("AiClient", () => {
               candidates: [
                 {
                   content: {
-                    parts: [{ text: "Gemma response" }],
+                    parts: [
+                      { text: "Private scratch work", thought: true },
+                      { text: "Gemma response" },
+                    ],
                     role: "model",
                   },
                 },

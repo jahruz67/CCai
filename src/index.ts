@@ -64,6 +64,16 @@ async function main(): Promise<void> {
 
   const aiClient = new AiClient(config.ai, fetch, searchService);
 
+  // Log retry configuration summary (no credentials)
+  const retryCfg = config.ai.retry;
+  if (retryCfg?.enabled) {
+    console.log(
+      `AI 503 retry enabled: maxAttempts=${retryCfg.maxAttempts} initialDelayMs=${retryCfg.initialDelayMs} maxDelayMs=${retryCfg.maxDelayMs} requestTimeoutMs=${retryCfg.requestTimeoutMs}`,
+    );
+  } else {
+    console.log("AI 503 retry disabled");
+  }
+
   // Log fallback configuration summary (no credentials)
   const fbConfig = config.ai.fallback;
   if (fbConfig?.enabled && fbConfig.models.length > 0) {

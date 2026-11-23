@@ -3,6 +3,7 @@ import {
   cleanCitationMarkers,
   formatDiscordMath,
   formatSourceList,
+  stripModelReasoning,
 } from "../message-utils.js";
 import type { SearchService } from "../search-provider.js";
 import type { ChatMessage, ToolCall } from "../types.js";
@@ -246,7 +247,7 @@ export function extractChatCompletionsText(data: unknown): string | undefined {
   const content = response.choices?.[0]?.message?.content;
 
   if (typeof content === "string") {
-    const cleaned = cleanCitationMarkers(content);
+    const cleaned = cleanCitationMarkers(stripModelReasoning(content));
     const formatted = formatDiscordMath(cleaned).trim();
     return formatted || undefined;
   }
@@ -257,11 +258,17 @@ export function extractChatCompletionsText(data: unknown): string | undefined {
         if (!part || typeof part !== "object") {
           return "";
         }
-        const candidate = (part as { text?: unknown }).text;
-        return typeof candidate === "string" ? candidate : "";
+        const block = part as { text?: unknown; thought?: unknown; type?: unknown };
+        if (
+          block.thought === true ||
+          (block.type !== undefined && block.type !== "text" && block.type !== "output_text")
+        ) {
+          return "";
+        }
+        return typeof block.text === "string" ? block.text : "";
       })
       .join("\n");
-    const cleaned = cleanCitationMarkers(text);
+    const cleaned = cleanCitationMarkers(stripModelReasoning(text));
     const formatted = formatDiscordMath(cleaned).trim();
     return formatted || undefined;
   }

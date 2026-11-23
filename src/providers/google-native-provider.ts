@@ -3,6 +3,7 @@ import {
   cleanCitationMarkers,
   formatDiscordMath,
   formatSourceList,
+  stripModelReasoning,
 } from "../message-utils.js";
 import type { SearchService } from "../search-provider.js";
 import type { ChatMessage, ToolCall } from "../types.js";
@@ -16,6 +17,19 @@ import {
   addHttpUrl,
   parseJson,
 } from "./responses-provider.js";
+import {
+  DEFAULT_AI_RETRY_CONFIG,
+  executeFetchWithRetry,
+  extractGoogleError,
+  type AiRetryConfig,
+  type RetryLogger,
+} from "../retry-strategy.js";
+
+export interface GoogleNativeProviderOptions {
+  jitterFn?: () => number;
+  logger?: RetryLogger;
+  retryOptions?: Partial<AiRetryConfig>;
+}
 
 export function isGemmaModel(model: string): boolean {
   return /gemma/i.test(model);
@@ -69,7 +83,16 @@ export class GoogleNativeProvider implements AiProvider {
     private readonly config: BotConfig["ai"],
     private readonly fetcher: FetchLike,
     private readonly searchService?: SearchService,
+    private readonly options: GoogleNativeProviderOptions = {},
   ) {}
+
+  private getRetryConfig(): AiRetryConfig {
+    return {
+      ...DEFAULT_AI_RETRY_CONFIG,
+      ...this.config.retry,
+      ...this.options.retryOptions,
+    };
+  }
 
   public async generate(
     messages: readonly ChatMessage[],
@@ -194,39 +217,27 @@ export class GoogleNativeProvider implements AiProvider {
         body.tools = [GEMINI_WEB_SEARCH_TOOL];
       }
 
-      const response = await this.fetcher(endpoint, {
-        body: JSON.stringify(body),
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": this.config.apiKey,
+      const fetchCall = (callSignal: AbortSignal) =>
+        this.fetcher(endpoint, {
+          body: JSON.stringify(body),
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": this.config.apiKey,
+          },
+          method: "POST",
+          signal: callSignal,
+        });
+
+      const { data, requestId, response } = await executeFetchWithRetry(
+        fetchCall,
+        {
+          jitterFn: this.options.jitterFn,
+          logger: this.options.logger,
+          model: cleanModel,
+          parentSignal: signal,
+          retryConfig: this.getRetryConfig(),
         },
-        method: "POST",
-        signal,
-      });
-
-      const rawBody = await response.text();
-      const requestId = response.headers.get("x-request-id") ?? undefined;
-      const data = parseJson(rawBody);
-
-      if (!response.ok) {
-        const errorInfo = extractGoogleError(data);
-        const rawMessage = errorInfo?.message ?? `Google API returned HTTP ${response.status}.`;
-
-        // Check for invalid API key mapped to 401
-        let status = response.status;
-        if (response.status === 400 && /API key not valid/i.test(rawMessage)) {
-          status = 401;
-        } else if (response.status === 404 || /not found/i.test(rawMessage)) {
-          status = 404;
-          throw new AiProviderError(
-            `Model "${this.config.model}" not found or unsupported by Google API.`,
-            status,
-            requestId,
-          );
-        }
-
-        throw new AiProviderError(rawMessage, status, requestId);
-      }
+      );
 
       if (data === undefined) {
         throw new AiProviderError(
@@ -500,21 +511,6 @@ function coalesceTurns(turns: GoogleContent[]): GoogleContent[] {
   return coalesced;
 }
 
-function extractGoogleError(data: unknown): { code?: number; message?: string; status?: string } | undefined {
-  if (!data || typeof data !== "object") {
-    return undefined;
-  }
-
-  const parsed = data as {
-    error?: {
-      code?: number;
-      message?: string;
-      status?: string;
-    };
-  };
-
-  return parsed.error;
-}
 
 export function extractGoogleNativeText(data: unknown): string | undefined {
   if (!data || typeof data !== "object") {
@@ -526,6 +522,7 @@ export function extractGoogleNativeText(data: unknown): string | undefined {
       content?: {
         parts?: Array<{
           text?: unknown;
+          thought?: unknown;
         }>;
       };
     }>;
@@ -533,6 +530,7 @@ export function extractGoogleNativeText(data: unknown): string | undefined {
 
   const parts = response.candidates?.[0]?.content?.parts ?? [];
   const rawText = parts
+    .filter((part) => part.thought !== true)
     .map((p) => (typeof p.text === "string" ? p.text : ""))
     .join("\n")
     .trim();
@@ -541,7 +539,7 @@ export function extractGoogleNativeText(data: unknown): string | undefined {
     return undefined;
   }
 
-  const cleaned = cleanCitationMarkers(rawText);
+  const cleaned = cleanCitationMarkers(stripModelReasoning(rawText));
   if (!cleaned) {
     return undefined;
   }

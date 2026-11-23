@@ -126,4 +126,39 @@ describe("loadConfig admin roles", () => {
 
     expect(config.ai.fallback?.enabled).toBe(false);
   });
+
+  it("loads conservative default retry and backoff settings", () => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+    });
+
+    expect(config.ai.retry).toEqual({
+      enabled: true,
+      initialDelayMs: 1_000,
+      maxAttempts: 3,
+      maxDelayMs: 4_000,
+      requestTimeoutMs: 15_000,
+    });
+  });
+
+  it("loads custom retry and backoff settings from environment variables", () => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      AI_REQUEST_TIMEOUT_MS: "12000",
+      AI_RETRY_ENABLED: "false",
+      AI_RETRY_INITIAL_DELAY_MS: "500",
+      AI_RETRY_MAX_ATTEMPTS: "4",
+      AI_RETRY_MAX_DELAY_MS: "8000",
+      DISCORD_TOKEN: "test-token",
+    });
+
+    expect(config.ai.retry).toEqual({
+      enabled: false,
+      initialDelayMs: 500,
+      maxAttempts: 4,
+      maxDelayMs: 8_000,
+      requestTimeoutMs: 12_000,
+    });
+  });
 });

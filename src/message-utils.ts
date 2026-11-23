@@ -71,6 +71,47 @@ export function conversationKey(
 const TRACKING_PARAM_PATTERN =
   /^(?:utm_[a-z_]+|fbclid|gclid|gclsrc|dclid|msclkid|mc_eid|_ga|_gl|trk|igshid|ref|ref_src|ref_url|source)$/i;
 
+/** Removes explicit model reasoning while preserving quoted code examples. */
+export function stripModelReasoning(text: string): string {
+  const tokens = /```[\s\S]*?(?:```|$)|`[^`\r\n]*`|<\/?(?:think|thinking|analysis|reasoning)\s*>|<\|channel>(?:thought|analysis|final)\b[ \t]*(?:\r?\n)?|<channel\|>/gi;
+  const output: string[] = [];
+  let cursor = 0;
+  let depth = 0;
+  let thoughtChannel = false;
+
+  for (const match of text.matchAll(tokens)) {
+    const token = match[0];
+    if (depth === 0 && !thoughtChannel) {
+      output.push(text.slice(cursor, match.index));
+    }
+
+    if (/^<\|channel>/i.test(token)) {
+      thoughtChannel = !/^<\|channel>final\b/i.test(token);
+    } else if (token.toLowerCase() === "<channel|>") {
+      thoughtChannel = false;
+    } else if (token.startsWith("</")) {
+      if (depth > 0) {
+        depth--;
+      } else {
+        // Some providers omit an opening tag that was prefilled in the prompt.
+        output.length = 0;
+      }
+    } else if (token.startsWith("<")) {
+      depth++;
+    } else if (depth === 0 && !thoughtChannel) {
+      output.push(token);
+    }
+
+    cursor = match.index + token.length;
+  }
+
+  // An unfinished reasoning block must not become the reply when truncated.
+  if (depth === 0 && !thoughtChannel) {
+    output.push(text.slice(cursor));
+  }
+  return output.join("").trim();
+}
+
 export function cleanCitationMarkers(text: string): string {
   if (!text) {
     return "";

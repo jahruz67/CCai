@@ -3,6 +3,7 @@ export class AiProviderError extends Error {
     message: string,
     public readonly status: number,
     public readonly requestId?: string,
+    public readonly retriesExhausted = false,
   ) {
     super(message);
     this.name = "AiProviderError";
@@ -10,14 +11,14 @@ export class AiProviderError extends Error {
 }
 
 export class AiTimeoutError extends Error {
-  public constructor() {
+  public constructor(public readonly retriesExhausted = false) {
     super("The AI provider request timed out.");
     this.name = "AiTimeoutError";
   }
 }
 
 export class AiNetworkError extends Error {
-  public constructor() {
+  public constructor(public readonly retriesExhausted = false) {
     super("The AI provider could not be reached.");
     this.name = "AiNetworkError";
   }

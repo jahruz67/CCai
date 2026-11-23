@@ -1,0 +1,10 @@
+# Use a published image; no source checkout or local build is needed.
+# Set CCAI_IMAGE in .env to pin a release or use an image from a fork.
+services:
+  ccai:
+    image: ${CCAI_IMAGE:-ghcr.io/jahruz67/ccai:latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production

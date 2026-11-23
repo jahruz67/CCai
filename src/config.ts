@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { AiRetryConfig } from "./retry-strategy.js";
+export type { AiRetryConfig };
 
 export const DEFAULT_SYSTEM_PROMPT = `You are CC, an expert, highly accurate, and intelligent Discord assistant.
 
@@ -48,6 +50,14 @@ const environmentSchema = z.object({
   AI_REASONING_EFFORT: z
     .enum(["off", "none", "low", "medium", "high"])
     .default("off"),
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(15_000),
+  AI_RETRY_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  AI_RETRY_INITIAL_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(1_000),
+  AI_RETRY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  AI_RETRY_MAX_DELAY_MS: z.coerce.number().int().min(0).max(300_000).default(4_000),
   AI_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(45_000),
   AI_WEB_SEARCH_ENABLED: z
     .enum(["true", "false"])
@@ -177,6 +187,7 @@ export interface BotConfig {
     maxOutputTokens: number;
     model: string;
     reasoningEffort: "off" | "none" | "low" | "medium" | "high";
+    retry?: AiRetryConfig;
     style: "responses" | "chat-completions" | "google-native";
     systemPrompt: string;
     timeoutMs: number;
@@ -284,6 +295,13 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): BotCon
       maxOutputTokens: values.AI_MAX_OUTPUT_TOKENS,
       model: values.AI_MODEL,
       reasoningEffort: values.AI_REASONING_EFFORT,
+      retry: {
+        enabled: values.AI_RETRY_ENABLED,
+        initialDelayMs: values.AI_RETRY_INITIAL_DELAY_MS,
+        maxAttempts: values.AI_RETRY_MAX_ATTEMPTS,
+        maxDelayMs: values.AI_RETRY_MAX_DELAY_MS,
+        requestTimeoutMs: values.AI_REQUEST_TIMEOUT_MS,
+      },
       style: values.AI_API_STYLE,
       systemPrompt: values.SYSTEM_PROMPT,
       timeoutMs: values.AI_TIMEOUT_MS,
