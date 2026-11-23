@@ -420,13 +420,16 @@ manually triggered; pushes, Git tags, and GitHub releases do not trigger it.
 To publish a version after the workflow is on the default branch:
 
 1. Open **Actions → Publish Docker image → Run workflow**.
-2. Select the branch containing the code to publish and enter an image tag such
-   as `v0.1.0`. The image tag does not create a Git tag or GitHub release.
+2. Select the branch containing the code to publish. No version input is needed.
 3. Leave **Also update the latest tag** enabled for the default deployment image,
-   or disable it for a preview release. Use a tag other than `latest` for previews.
-4. Run the workflow. It builds the existing `Dockerfile` and pushes the requested
+   or disable it for a preview release.
+4. Run the workflow. It builds the existing `Dockerfile` and pushes an automatic
    tag, plus `latest` when enabled, using `GITHUB_TOKEN`; no registry secrets are
-   required. Reusing a tag replaces the image associated with that tag.
+   required.
+
+Each run gets a tag such as `build-42-1`, using the workflow run number and attempt
+number. Reruns get a new attempt number. The published image reference appears in
+the workflow summary. These image tags do not create Git tags or GitHub releases.
 
 After the first publish, make the `ccai` container package **public** in its GitHub
 package settings so users can pull it without logging in. If the package already
@@ -451,7 +454,7 @@ instead of following `latest`, add this to `.env` (replace the tag with a publis
 version; change the image path when using a fork):
 
 ```dotenv
-CCAI_IMAGE=ghcr.io/jahruz67/ccai:v0.1.0
+CCAI_IMAGE=ghcr.io/jahruz67/ccai:build-42-1
 ```
 
 ```bash

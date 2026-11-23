@@ -3,10 +3,6 @@ name: Publish Docker image
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Docker image tag (for example, v0.1.0)"
-        required: true
-        type: string
       latest:
         description: Also update the latest tag
         default: true
@@ -25,17 +21,12 @@ jobs:
     name: Build and publish to GHCR
     runs-on: ubuntu-latest
     steps:
-      - name: Validate tag and set image name
+      - name: Set image name and automatic tag
         id: image
-        env:
-          IMAGE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
-          if [[ ! "$IMAGE_TAG" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]]; then
-            echo "::error::Image tag must contain 1-128 letters, digits, underscores, periods, or hyphens, and start with a letter, digit, or underscore."
-            exit 1
-          fi
           echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
       - name: Check out the selected revision
         uses: actions/checkout@v6
@@ -65,11 +56,18 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ steps.image.outputs.name }}:${{ inputs.tag }}
-            ${{ inputs.latest && inputs.tag != 'latest' && format('{0}:latest', steps.image.outputs.name) || '' }}
+            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
+            ${{ inputs.latest && format('{0}:latest', steps.image.outputs.name) || '' }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ inputs.tag }}
+            org.opencontainers.image.version=${{ steps.image.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Show published image
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          echo "Published image: ${IMAGE_NAME}:${IMAGE_TAG}" >> "$GITHUB_STEP_SUMMARY"
