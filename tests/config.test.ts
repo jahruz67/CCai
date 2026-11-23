@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 
@@ -41,7 +42,26 @@ describe("loadConfig database SSL", () => {
   });
 });
 
-describe("loadConfig admin roles", () => {
+describe("loadConfig Compose defaults", () => {
+  it("accepts the default environment from docker-compose.yml", () => {
+    const compose = readFileSync(new URL("../docker-compose.yml", import.meta.url), "utf8");
+    const defaults = Object.fromEntries(
+      [...compose.matchAll(/^\s+- ([A-Z_]+)=\$\{[A-Z_]+(?::-([^}]*))?\}$/gm)]
+        .map((match) => [match[1]!, match[2] ?? ""]),
+    );
+    // Ensure this exercises the empty value that previously blocked deployment.
+    expect(defaults.AI_FALLBACK_API_STYLE).toBe("");
+
+    const config = loadConfig({
+      ...defaults,
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+    });
+
+    expect(config.ai.style).toBe("responses");
+    expect(config.ai.fallback?.models).toEqual([]);
+  });
+
   it("accepts empty optional provider URLs supplied by Docker Compose", () => {
     const config = loadConfig({
       AI_API_KEY: "test-key",
@@ -53,7 +73,42 @@ describe("loadConfig admin roles", () => {
 
     expect(config.ai.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta");
   });
+});
 
+describe("loadConfig fallback API style", () => {
+  it.each([undefined, "", "   "])("inherits the provider style when the override is %j", (style) => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+      AI_API_STYLE: "chat-completions",
+      AI_FALLBACK_API_STYLE: style,
+      AI_FALLBACK_MODELS: "backup-model",
+    });
+
+    expect(config.ai.fallback?.models[0]?.style).toBe("chat-completions");
+  });
+
+  it.each(["responses", "chat-completions", "google-native"])("preserves the explicit %s override", (style) => {
+    const config = loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+      AI_FALLBACK_API_STYLE: style,
+      AI_FALLBACK_MODELS: "backup-model",
+    });
+
+    expect(config.ai.fallback?.models[0]?.style).toBe(style);
+  });
+
+  it("rejects an invalid nonempty override", () => {
+    expect(() => loadConfig({
+      AI_API_KEY: "test-key",
+      DISCORD_TOKEN: "test-token",
+      AI_FALLBACK_API_STYLE: "unsupported",
+    })).toThrow("AI_FALLBACK_API_STYLE");
+  });
+});
+
+describe("loadConfig admin roles", () => {
   it("separates Discord role IDs from case-insensitive exact names", () => {
     const config = loadConfig({
       AI_ADMIN_ROLES: "123456789012345678, Senior Admin,MOD TEAM",

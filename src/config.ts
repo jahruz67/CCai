@@ -32,10 +32,10 @@ Core Principles:
 - Do not make important explanations overly brief; maintain necessary depth, nuance, and clarity for critical concepts.
 - Provide longer, in-depth responses only when the user explicitly asks for more detail or when the topic genuinely necessitates a longer answer.`;
 
-const optionalUrl = z.preprocess(
-  (value) => typeof value === "string" && !value.trim() ? undefined : value,
-  z.string().trim().url().optional(),
-);
+const emptyToUndefined = (value: unknown) =>
+  typeof value === "string" && !value.trim() ? undefined : value;
+
+const optionalUrl = z.preprocess(emptyToUndefined, z.string().trim().url().optional());
 
 const environmentSchema = z.object({
   AI_API_KEY: z.string().trim().min(1, "AI_API_KEY is required"),
@@ -65,9 +65,10 @@ const environmentSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   AI_FALLBACK_API_KEY: z.string().trim().optional(),
-  AI_FALLBACK_API_STYLE: z
-    .enum(["responses", "chat-completions", "google-native"])
-    .optional(),
+  AI_FALLBACK_API_STYLE: z.preprocess(
+    emptyToUndefined,
+    z.enum(["responses", "chat-completions", "google-native"]).optional(),
+  ),
   AI_FALLBACK_BASE_URL: optionalUrl,
   AI_FALLBACK_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce
     .number()
