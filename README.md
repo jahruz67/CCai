@@ -2,7 +2,15 @@
 
 A Discord AI assistant for questions, web search, saved memories, and server management.
 
-[Add to Discord](https://discord.com/oauth2/authorize?client_id=1539780033848283299) · [Documentation](docs/README.md)
+<a href="https://discord.com/oauth2/authorize?client_id=1539780033848283299">
+  <img
+    src="https://img.shields.io/badge/Add%20CCai%20to%20Discord-5865F2?style=flat-square&logo=discord&logoColor=white"
+    alt="Add CCai to Discord"
+    width="180"
+  />
+</a>
+
+[Documentation](https://github.com/jahruz67/CCai/wiki)
 
 ![C.C. from Code Geass holding pizza](./CC-and-Pizza-Hut-from-Code-Geass.jpg)
 
@@ -29,4 +37,4 @@ docker compose run --rm --no-deps ccai node dist/register-commands.js
 docker compose up -d ccai
 ```
 
-See [setup](docs/setup.md), [configuration](docs/configuration.md), and [deployment](docs/deployment.md) for details.
+See [setup](https://github.com/jahruz67/CCai/wiki/Setup), [configuration](https://github.com/jahruz67/CCai/wiki/Configuration), and [deployment](https://github.com/jahruz67/CCai/wiki/Deployment) for details.
