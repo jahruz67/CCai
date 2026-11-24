@@ -11,16 +11,17 @@ import {
   AiRefusalError,
   AiTimeoutError,
 } from "./ai-errors.js";
-import type { AiProvider, FetchLike } from "./providers/types.js";
+import type { AiProvider, AiProviderOptions, FetchLike } from "./providers/types.js";
 import { createAiProvider } from "./providers/factory.js";
-import type { GoogleNativeProviderOptions } from "./providers/google-native-provider.js";
 import type { SearchService } from "./search-provider.js";
 import type { ChatMessage, GenerationOptions } from "./types.js";
 
 export type FallbackLogger = (message: string) => void;
 
 export interface FallbackOrchestratorOptions {
-  googleOptions?: GoogleNativeProviderOptions;
+  providerOptions?: AiProviderOptions;
+  /** @deprecated Use providerOptions. */
+  googleOptions?: AiProviderOptions;
   logger?: FallbackLogger;
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
@@ -380,7 +381,7 @@ export async function sleep(
 export class FallbackOrchestrator {
   private readonly candidates: ResolvedCandidateConfig[];
   private readonly circuitBreaker: CircuitBreaker;
-  private readonly googleOptions?: GoogleNativeProviderOptions;
+  private readonly providerOptions?: AiProviderOptions;
   private readonly logger: FallbackLogger;
   private readonly maxRetries: number;
   private readonly providers = new Map<number, AiProvider>();
@@ -394,7 +395,7 @@ export class FallbackOrchestrator {
     private readonly searchService?: SearchService,
     options: FallbackOrchestratorOptions = {},
   ) {
-    this.googleOptions = options.googleOptions;
+    this.providerOptions = options.providerOptions ?? options.googleOptions;
     this.logger = options.logger ?? ((msg) => console.log(msg));
     this.maxRetries = fallbackConfig.maxRetries;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 500;
@@ -586,7 +587,7 @@ export class FallbackOrchestrator {
         candidate as unknown as BotConfig["ai"],
         this.fetcher,
         this.searchService,
-        this.googleOptions,
+        this.providerOptions,
       );
       this.providers.set(index, provider);
     }

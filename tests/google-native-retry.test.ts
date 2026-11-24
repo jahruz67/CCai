@@ -111,8 +111,8 @@ describe("GoogleNativeProvider 503 Automatic Retry and Backoff", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
 
     // Verify retry logs and absence of sensitive keys
-    expect(logs.some((l) => l.includes("Google API returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 1/3)"))).toBe(true);
-    expect(logs.some((l) => l.includes("Google API returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 2/3)"))).toBe(true);
+    expect(logs.some((l) => l.includes("AI provider returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 1/3)"))).toBe(true);
+    expect(logs.some((l) => l.includes("AI provider returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 2/3)"))).toBe(true);
     expect(logs.some((l) => l.includes("request succeeded for model \"gemma-4-31b-it\" on attempt 3 after 2 retries"))).toBe(true);
 
     for (const log of logs) {
@@ -305,7 +305,7 @@ describe("GoogleNativeProvider 503 Automatic Retry and Backoff", () => {
     });
 
     expect(fetcher).toHaveBeenCalledTimes(3);
-    expect(logs.some((l) => l.includes("Google API retries exhausted for model \"gemma-4-31b-it\" after 3 attempts (HTTP 503)"))).toBe(true);
+    expect(logs.some((l) => l.includes("AI provider retries exhausted for model \"gemma-4-31b-it\" after 3 attempts (HTTP 503)"))).toBe(true);
   });
 
   it.each([
@@ -349,9 +349,9 @@ describe("GoogleNativeProvider 503 Automatic Retry and Backoff", () => {
   );
 
   it.each([
-    { status: 429, expectedCalls: 2 },
-    { status: 502, expectedCalls: 3 },
-  ])("preserves existing fallback handling for HTTP $status", async ({ status, expectedCalls }) => {
+    { status: 429, expectedCalls: 4 },
+    { status: 502, expectedCalls: 4 },
+  ])("falls back after exhausting provider retries for HTTP $status", async ({ status, expectedCalls }) => {
     const fetcher = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("gemma-4-31b-it")) {
         return new Response(JSON.stringify({ error: { message: "Try again" } }), { status });

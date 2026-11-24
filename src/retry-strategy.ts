@@ -3,7 +3,7 @@ import {
   AiProviderError,
   AiTimeoutError,
 } from "./ai-errors.js";
-import { parseJson } from "./providers/responses-provider.js";
+import { extractProviderError, parseJson } from "./providers/http-utils.js";
 
 export interface AiRetryConfig {
   enabled: boolean;
@@ -23,7 +23,7 @@ export const DEFAULT_AI_RETRY_CONFIG: AiRetryConfig = {
 
 export type RetryLogger = (message: string) => void;
 
-export interface GoogleErrorDetails {
+export interface ProviderErrorDetails {
   code?: number;
   details?: unknown[];
   message?: string;
@@ -31,18 +31,34 @@ export interface GoogleErrorDetails {
   status?: string;
 }
 
-export function extractGoogleError(data: unknown): GoogleErrorDetails | undefined {
+export function extractProviderErrorDetails(data: unknown): ProviderErrorDetails | undefined {
   if (!data || typeof data !== "object") {
     return undefined;
   }
 
   const parsed = data as {
-    error?: GoogleErrorDetails;
+    error?: unknown;
   };
 
-  return parsed.error;
+  return parsed.error && typeof parsed.error === "object"
+    ? parsed.error as ProviderErrorDetails
+    : undefined;
 }
 
+/** @deprecated Use ProviderErrorDetails. */
+export type GoogleErrorDetails = ProviderErrorDetails;
+/** @deprecated Use extractProviderErrorDetails. */
+export const extractGoogleError = extractProviderErrorDetails;
+
+export function isTransientProviderError(status: number, data?: unknown): boolean {
+  if ([429, 500, 502, 503, 504].includes(status)) {
+    return true;
+  }
+  const errorInfo = extractProviderErrorDetails(data);
+  return status >= 500 && (errorInfo?.code === 503 || errorInfo?.status === "UNAVAILABLE");
+}
+
+/** @deprecated Use isTransientProviderError for provider-neutral retries. */
 export function isTransientGoogleError(
   status: number,
   data?: unknown,
@@ -50,7 +66,7 @@ export function isTransientGoogleError(
   if (status === 503) {
     return true;
   }
-  const errorInfo = extractGoogleError(data);
+  const errorInfo = extractProviderErrorDetails(data);
   if (errorInfo?.code === 503) {
     return true;
   }
@@ -61,7 +77,7 @@ export function isTransientGoogleError(
 }
 
 /**
- * Parses duration formats commonly returned in Google RPC errors, such as:
+ * Parses retry duration formats, including RPC durations, such as:
  * - string: "2.5s", "1000ms", "3"
  * - number: 2.5 (seconds)
  * - protobuf Duration object: { seconds: 2, nanos: 500000000 }
@@ -118,7 +134,7 @@ export function parseDurationToMs(val: unknown): number | undefined {
 /**
  * Extracts server-provided retry delays from either:
  * 1. HTTP Retry-After header (seconds or HTTP-date)
- * 2. Google RPC error details (RetryInfo.retryDelay or error.retryDelay)
+ * 2. Structured error details (RetryInfo.retryDelay or error.retryDelay)
  */
 export function extractServerRetryDelay(
   response: Response,
@@ -141,7 +157,7 @@ export function extractServerRetryDelay(
   }
 
   if (data && typeof data === "object") {
-    const errorInfo = extractGoogleError(data);
+    const errorInfo = extractProviderErrorDetails(data);
     if (errorInfo?.retryDelay) {
       const parsed = parseDurationToMs(errorInfo.retryDelay);
       if (parsed !== undefined) {
@@ -152,10 +168,7 @@ export function extractServerRetryDelay(
       for (const item of errorInfo.details) {
         if (item && typeof item === "object") {
           const detail = item as Record<string, unknown>;
-          if (
-            detail["@type"] === "type.googleapis.com/google.rpc.RetryInfo" ||
-            "retryDelay" in detail
-          ) {
+          if ("retryDelay" in detail) {
             const parsed = parseDurationToMs(detail.retryDelay);
             if (parsed !== undefined) {
               return parsed;
@@ -171,7 +184,7 @@ export function extractServerRetryDelay(
 
 /**
  * Computes exponential backoff delay with proportional jitter (±20%).
- * Gradually increases the delay between attempts to avoid overwhelming Google's servers.
+ * Gradually increases the delay between attempts to avoid overwhelming the provider.
  *
  * @param retryIndex 0 for first retry (attempt 2), 1 for second retry (attempt 3), etc.
  * @param initialDelayMs Initial backoff delay (e.g. 1000ms)
@@ -232,8 +245,8 @@ export interface FetchRetryResult {
 }
 
 /**
- * Executes an HTTP fetch operation with Google's recommended retry and backoff strategy.
- * Automatically retries temporary HTTP 503 / UNAVAILABLE errors with exponential backoff and jitter.
+ * Executes an HTTP fetch with bounded retries, exponential backoff, and jitter.
+ * Retries rate limits, temporary server errors, network failures, and request timeouts.
  */
 export async function executeFetchWithRetry(
   fetchFn: (attemptSignal: AbortSignal) => Promise<Response>,
@@ -300,13 +313,13 @@ export async function executeFetchWithRetry(
             jitterFn,
           );
           logger(
-            `[AI Retry] Google API request timed out after ${retryConfig.requestTimeoutMs}ms for model "${model}" (attempt ${attempt}/${maxAttempts}). Retrying in ${delayMs}ms...`,
+            `[AI Retry] AI provider request timed out after ${retryConfig.requestTimeoutMs}ms for model "${model}" (attempt ${attempt}/${maxAttempts}). Retrying in ${delayMs}ms...`,
           );
           await sleep(delayMs, parentSignal);
           continue;
         }
         logger(
-          `[AI Retry] Google API retries exhausted for model "${model}" after ${maxAttempts} attempts (timeout).`,
+          `[AI Retry] AI provider retries exhausted for model "${model}" after ${maxAttempts} attempts (timeout).`,
         );
         throw lastError;
       }
@@ -322,7 +335,7 @@ export async function executeFetchWithRetry(
           jitterFn,
         );
         logger(
-          `[AI Retry] Network error contacting Google API for model "${model}" (attempt ${attempt}/${maxAttempts}). Retrying in ${delayMs}ms...`,
+          `[AI Retry] Network error contacting AI provider for model "${model}" (attempt ${attempt}/${maxAttempts}). Retrying in ${delayMs}ms...`,
         );
         await sleep(delayMs, parentSignal);
         continue;
@@ -342,7 +355,7 @@ export async function executeFetchWithRetry(
     if (response.ok) {
       if (attempt > 1) {
         logger(
-          `[AI Retry] Google API request succeeded for model "${model}" on attempt ${attempt} after ${attempt - 1} ${attempt - 1 === 1 ? "retry" : "retries"}.`,
+          `[AI Retry] AI provider request succeeded for model "${model}" on attempt ${attempt} after ${attempt - 1} ${attempt - 1 === 1 ? "retry" : "retries"}.`,
         );
       }
       return { data, rawBody, requestId, response };
@@ -350,10 +363,9 @@ export async function executeFetchWithRetry(
 
     // Response is not OK
     const status = response.status;
-    const errorInfo = extractGoogleError(data);
-    const is503 = isTransientGoogleError(status, data);
+    const retryable = isTransientProviderError(status, data);
 
-    if (is503 && attempt < maxAttempts) {
+    if (retryable && attempt < maxAttempts) {
       const serverDelay = extractServerRetryDelay(response, data);
       const delayMs =
         serverDelay !== undefined
@@ -366,39 +378,32 @@ export async function executeFetchWithRetry(
             );
 
       logger(
-        `[AI Retry] Google API returned HTTP ${status} for model "${model}" (attempt ${attempt}/${maxAttempts}). Retrying in ${delayMs}ms...`,
+        `[AI Retry] AI provider returned HTTP ${status} for model "${model}" (attempt ${attempt}/${maxAttempts}). Retrying in ${delayMs}ms...`,
       );
 
       await sleep(delayMs, parentSignal);
       continue;
     }
 
-    if (is503 && attempt === maxAttempts) {
+    if (retryable && attempt === maxAttempts) {
       logger(
-        `[AI Retry] Google API retries exhausted for model "${model}" after ${maxAttempts} attempts (HTTP ${status}).`,
+        `[AI Retry] AI provider retries exhausted for model "${model}" after ${maxAttempts} attempts (HTTP ${status}).`,
       );
     }
 
     const rawMessage =
-      errorInfo?.message ?? `Google API returned HTTP ${response.status}.`;
+      extractProviderError(data) ?? `AI provider returned HTTP ${response.status}.`;
 
     let mappedStatus = status;
     if (status === 400 && /API key not valid/i.test(rawMessage)) {
       mappedStatus = 401;
-    } else if (status === 404 || /not found/i.test(rawMessage)) {
-      mappedStatus = 404;
-      throw new AiProviderError(
-        `Model "${model}" not found or unsupported by Google API.`,
-        mappedStatus,
-        requestId,
-      );
     }
 
     throw new AiProviderError(
       rawMessage,
       mappedStatus,
       requestId,
-      is503 && retryConfig.enabled,
+      retryable && retryConfig.enabled,
     );
   }
 
@@ -407,7 +412,7 @@ export async function executeFetchWithRetry(
   }
 
   throw new AiProviderError(
-    `Google API request failed after ${maxAttempts} attempts.`,
+    `AI provider request failed after ${maxAttempts} attempts.`,
     503,
   );
 }

@@ -31,6 +31,8 @@ function primaryConfig(overrides: Partial<BotConfig["ai"]> = {}): BotConfig["ai"
     maxOutputTokens: 200,
     model: "primary-model",
     reasoningEffort: "off",
+    // Isolate the orchestrator's retry budget from provider-level retries.
+    retry: { enabled: false, initialDelayMs: 0, maxAttempts: 1, maxDelayMs: 0, requestTimeoutMs: 1_000 },
     style: "chat-completions",
     systemPrompt: "You are helpful.",
     timeoutMs: 2_000,

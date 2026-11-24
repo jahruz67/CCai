@@ -1,7 +1,8 @@
 import type { BotConfig } from "./config.js";
 import type { SearchService } from "./search-provider.js";
 import type { ChatMessage, GenerationOptions } from "./types.js";
-import type { AiProvider, FetchLike } from "./providers/types.js";
+import type { AiProvider, AiProviderOptions, FetchLike } from "./providers/types.js";
+export type { AiProviderOptions } from "./providers/types.js";
 import { createAiProvider } from "./providers/factory.js";
 import {
   extractResponsesText,
@@ -23,6 +24,7 @@ import {
   DEFAULT_AI_RETRY_CONFIG,
   extractServerRetryDelay,
   isTransientGoogleError,
+  isTransientProviderError,
 } from "./retry-strategy.js";
 import {
   AiAllModelsFailedError,
@@ -44,6 +46,7 @@ export {
   DEFAULT_AI_RETRY_CONFIG,
   extractServerRetryDelay,
   isTransientGoogleError,
+  isTransientProviderError,
   type GoogleNativeProviderOptions,
 };
 import {
@@ -71,6 +74,8 @@ export {
 
 export interface AiClientOptions {
   fallbackOptions?: FallbackOrchestratorOptions;
+  providerOptions?: AiProviderOptions;
+  /** @deprecated Use providerOptions. */
   googleOptions?: GoogleNativeProviderOptions;
 }
 
@@ -87,13 +92,14 @@ export class AiClient {
     const fallbackOptions = options && "fallbackOptions" in options
       ? options.fallbackOptions
       : options as FallbackOrchestratorOptions | undefined;
-    const googleOptions = options?.googleOptions ?? fallbackOptions?.googleOptions;
+    const providerOptions = options?.providerOptions ?? fallbackOptions?.providerOptions
+      ?? options?.googleOptions ?? fallbackOptions?.googleOptions;
 
     this.provider = createAiProvider(
       this.config,
       this.fetcher,
       this.searchService,
-      googleOptions,
+      providerOptions,
     );
 
     const fbConfig = this.config.fallback;
@@ -105,7 +111,7 @@ export class AiClient {
         this.searchService,
         {
           ...fallbackOptions,
-          googleOptions,
+          providerOptions,
         },
       );
     } else {

@@ -205,9 +205,9 @@ describe("executeFetchWithRetry", () => {
     expect(fetchFn).toHaveBeenCalledTimes(3);
 
     // Verify logs
-    expect(logs.some((l) => l.includes("Google API returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 1/3)"))).toBe(true);
-    expect(logs.some((l) => l.includes("Google API returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 2/3)"))).toBe(true);
-    expect(logs.some((l) => l.includes("Google API request succeeded for model \"gemma-4-31b-it\" on attempt 3 after 2 retries"))).toBe(true);
+    expect(logs.some((l) => l.includes("AI provider returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 1/3)"))).toBe(true);
+    expect(logs.some((l) => l.includes("AI provider returned HTTP 503 for model \"gemma-4-31b-it\" (attempt 2/3)"))).toBe(true);
+    expect(logs.some((l) => l.includes("AI provider request succeeded for model \"gemma-4-31b-it\" on attempt 3 after 2 retries"))).toBe(true);
     // Sensitive information check: ensure no API keys or secrets are logged
     for (const log of logs) {
       expect(log).not.toContain("key");
@@ -239,7 +239,7 @@ describe("executeFetchWithRetry", () => {
     });
 
     expect(fetchFn).toHaveBeenCalledTimes(3);
-    expect(logs.some((l) => l.includes("Google API retries exhausted for model \"gemma-4-31b-it\" after 3 attempts (HTTP 503)"))).toBe(true);
+    expect(logs.some((l) => l.includes("AI provider retries exhausted for model \"gemma-4-31b-it\" after 3 attempts (HTTP 503)"))).toBe(true);
   });
 
   it("does not retry when AI_RETRY_ENABLED is false", async () => {

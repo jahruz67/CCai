@@ -8,11 +8,8 @@ import {
 import type { SearchService } from "../search-provider.js";
 import type { ChatMessage, GenerationOptions, ToolCall } from "../types.js";
 import { AiProviderError } from "../ai-client.js";
-import type { AiProvider, FetchLike } from "./types.js";
-import {
-  extractProviderError,
-  parseJson,
-} from "./responses-provider.js";
+import type { AiProvider, AiProviderOptions, FetchLike } from "./types.js";
+import { DEFAULT_AI_RETRY_CONFIG, executeFetchWithRetry } from "../retry-strategy.js";
 
 export const WEB_SEARCH_TOOL_DEFINITION = {
   function: {
@@ -40,6 +37,7 @@ export class ChatCompletionsProvider implements AiProvider {
     private readonly config: BotConfig["ai"],
     private readonly fetcher: FetchLike,
     private readonly searchService?: SearchService,
+    private readonly options: AiProviderOptions = {},
   ) {}
 
   public async generate(
@@ -87,27 +85,26 @@ export class ChatCompletionsProvider implements AiProvider {
       }
 
       const endpoint = `${this.config.baseUrl}/chat/completions`;
-      const response = await this.fetcher(endpoint, {
+      const fetchCall = (attemptSignal: AbortSignal) => this.fetcher(endpoint, {
         body: JSON.stringify(body),
         headers: {
           Authorization: `Bearer ${this.config.apiKey}`,
           "Content-Type": "application/json",
         },
         method: "POST",
-        signal,
+        signal: attemptSignal,
       });
-
-      const rawBody = await response.text();
-      const requestId = response.headers.get("x-request-id") ?? undefined;
-      const data = parseJson(rawBody);
-
-      if (!response.ok) {
-        throw new AiProviderError(
-          extractProviderError(data) ?? `AI provider returned HTTP ${response.status}.`,
-          response.status,
-          requestId,
-        );
-      }
+      const { data, requestId, response } = await executeFetchWithRetry(fetchCall, {
+        jitterFn: this.options.jitterFn,
+        logger: this.options.logger,
+        model: this.config.model,
+        parentSignal: signal,
+        retryConfig: {
+          ...DEFAULT_AI_RETRY_CONFIG,
+          ...this.config.retry,
+          ...this.options.retryOptions,
+        },
+      });
 
       if (data === undefined) {
         throw new AiProviderError(

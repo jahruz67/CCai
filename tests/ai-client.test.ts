@@ -21,6 +21,7 @@ function config(
     maxOutputTokens: 200,
     model: "test-model",
     reasoningEffort: "off",
+    retry: { enabled: false, initialDelayMs: 0, maxAttempts: 1, maxDelayMs: 0, requestTimeoutMs: 1_000 },
     style: "responses",
     systemPrompt: "Be helpful.",
     timeoutMs: 1_000,
@@ -970,7 +971,7 @@ describe("AiClient", () => {
       );
 
       await expect(client.generate([{ content: "test", role: "user" }])).rejects.toThrow(
-        /not found or unsupported by Google API/i,
+        /models\/unknown-model is not found/i,
       );
     });
 

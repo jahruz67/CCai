@@ -1,4 +1,11 @@
 import type { ChatMessage, GenerationOptions } from "../types.js";
+import type { AiRetryConfig, RetryLogger } from "../retry-strategy.js";
+
+export interface AiProviderOptions {
+  jitterFn?: () => number;
+  logger?: RetryLogger;
+  retryOptions?: Partial<AiRetryConfig>;
+}
 
 export type FetchLike = (
   input: RequestInfo | URL,

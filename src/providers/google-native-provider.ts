@@ -12,7 +12,7 @@ import {
   AiProviderError,
   AiRefusalError,
 } from "../ai-client.js";
-import type { AiProvider, FetchLike } from "./types.js";
+import type { AiProvider, AiProviderOptions, FetchLike } from "./types.js";
 import {
   addHttpUrl,
   parseJson,
@@ -20,16 +20,11 @@ import {
 import {
   DEFAULT_AI_RETRY_CONFIG,
   executeFetchWithRetry,
-  extractGoogleError,
   type AiRetryConfig,
-  type RetryLogger,
 } from "../retry-strategy.js";
 
-export interface GoogleNativeProviderOptions {
-  jitterFn?: () => number;
-  logger?: RetryLogger;
-  retryOptions?: Partial<AiRetryConfig>;
-}
+/** @deprecated Use AiProviderOptions for all API styles. */
+export type GoogleNativeProviderOptions = AiProviderOptions;
 
 export function isGemmaModel(model: string): boolean {
   return /gemma/i.test(model);
@@ -83,7 +78,7 @@ export class GoogleNativeProvider implements AiProvider {
     private readonly config: BotConfig["ai"],
     private readonly fetcher: FetchLike,
     private readonly searchService?: SearchService,
-    private readonly options: GoogleNativeProviderOptions = {},
+    private readonly options: AiProviderOptions = {},
   ) {}
 
   private getRetryConfig(): AiRetryConfig {
