@@ -9,6 +9,7 @@ import {
   type ThreadChannel,
 } from "discord.js";
 import { z } from "zod";
+import { conversationKey } from "./message-utils.js";
 
 type ManageableGuildChannel = Exclude<GuildBasedChannel, ThreadChannel>;
 
@@ -98,10 +99,19 @@ export const managementActionSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export const managementPlanSchema = z.object({
-  actions: z.array(managementActionSchema).min(1).max(10),
-  summary: z.string().trim().min(1).max(500),
-});
+const managementSummarySchema = z.string().trim().min(1).max(160);
+
+export const managementPlanSchema = z.union([
+  z.object({
+    actions: z.array(managementActionSchema).min(1).max(25),
+    summary: managementSummarySchema,
+  }).strict(),
+  z.object({
+    actions: z.array(managementActionSchema).length(0),
+    clarification: z.string().trim().min(1).max(160),
+    summary: managementSummarySchema,
+  }).strict(),
+]);
 
 export type ManagementAction = z.infer<typeof managementActionSchema>;
 export type ManagementPlan = z.infer<typeof managementPlanSchema>;
@@ -112,6 +122,7 @@ export interface ManagementPlanner {
     serverSnapshot: string,
     signal?: AbortSignal,
     replyContext?: string,
+    scopeKey?: string,
   ): Promise<ManagementPlan>;
 }
 
@@ -210,7 +221,7 @@ export function isAuthorizedAdministrator(
 export function buildGuildSnapshot(guild: Guild): string {
   const channels = [...guild.channels.cache.values()]
     .filter((channel): channel is GuildBasedChannel => channel !== null)
-    .map((channel) => ({ id: channel.id, name: channel.name, type: ChannelType[channel.type] }))
+    .map((channel) => ({ id: channel.id, name: channel.name, parentId: channel.parentId, type: ChannelType[channel.type] }))
     .slice(0, 250);
   const roles = [...guild.roles.cache.values()]
     .filter((role) => role.id !== guild.id)
@@ -278,7 +289,11 @@ export class ServerManager {
       buildGuildSnapshot(guild),
       undefined,
       command.replyContext,
+      conversationKey(guild.id, channelId, member.id),
     );
+    if ("clarification" in plan) {
+      return plan.clarification;
+    }
     const hasMutation = plan.actions.some((action) => !READ_ONLY_ACTIONS.has(action.type));
     if (!hasMutation) {
       return executePlan(guild, plan, channelId, member.id);
@@ -292,8 +307,8 @@ export class ServerManager {
       plan,
       requestedBy: member.id,
     });
-    const reactionHint = requestMessageId ? " or react 👍 to this plan message" : "";
-    return `${formatPlan(plan)}\n\nNo changes have been made. Run \`cc manage confirm\`${reactionHint} within 5 minutes to execute this exact plan, or \`cc manage cancel\`.`;
+    const reactionHint = requestMessageId ? "👍 or " : "";
+    return `${formatPlan(plan)}\n${reactionHint}\`cc manage confirm\` · \`cc manage cancel\` · expires in 5m.`;
   }
 
   public bindConfirmationMessage(
@@ -324,15 +339,15 @@ export class ServerManager {
 }
 
 function formatPlan(plan: ManagementPlan): string {
-  const lines = [`**Server management plan:** ${plan.summary}`];
-  plan.actions.forEach((action, index) => {
-    const details = Object.entries(action)
-      .filter(([key]) => key !== "type")
-      .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-      .join(", ");
-    lines.push(`${index + 1}. ${ACTION_LABELS[action.type]}${details ? ` (${details})` : ""}`);
-  });
-  return lines.join("\n");
+  const counts = new Map<string, number>();
+  for (const action of plan.actions) {
+    const label = action.type === "create_channel"
+      ? action.channelType === "category" ? "create a category" : `create a ${action.channelType} channel`
+      : ACTION_LABELS[action.type];
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const actions = [...counts].map(([label, count]) => `${count}× ${label}`).join(" · ");
+  return `**Confirm:** ${plan.summary.replace(/\s+/g, " ")}\n${actions}`;
 }
 
 async function executePlan(
