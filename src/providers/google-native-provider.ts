@@ -6,7 +6,7 @@ import {
   stripModelReasoning,
 } from "../message-utils.js";
 import type { SearchService } from "../search-provider.js";
-import type { ChatMessage, ToolCall } from "../types.js";
+import type { ChatMessage, GenerationOptions, ToolCall } from "../types.js";
 import {
   AiIncompleteResponseError,
   AiProviderError,
@@ -97,6 +97,7 @@ export class GoogleNativeProvider implements AiProvider {
   public async generate(
     messages: readonly ChatMessage[],
     signal: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string> {
     const isGemma = isGemmaModel(this.config.model);
     const datedPrompt = `${this.config.systemPrompt}\nCurrent date: ${new Date()
@@ -107,7 +108,8 @@ export class GoogleNativeProvider implements AiProvider {
     // When using Gemma, system instructions are prepended to the first user message,
     // and tools are omitted (proactive search in AssistantService already covers live web data).
     let useSystemInstruction = !isGemma;
-    let useTools = !isGemma && this.config.webSearchEnabled && Boolean(this.searchService);
+    let useTools = !isGemma && this.config.webSearchEnabled &&
+      options?.webSearchEnabled !== false && Boolean(this.searchService);
 
     return this.executeWithFallbacks(
       messages,
@@ -180,6 +182,7 @@ export class GoogleNativeProvider implements AiProvider {
     );
 
     const citedUrls: string[] = [];
+    const providedSearchResults = new Set<string>();
     const maxRounds = 4;
     const cleanModel = this.config.model.replace(/^models\//, "");
     const endpoint = `${this.config.baseUrl}/models/${cleanModel}:generateContent`;
@@ -310,7 +313,7 @@ export class GoogleNativeProvider implements AiProvider {
                 citedUrls.push(item.url);
               }
             }
-            toolContent = this.searchService.formatResultsForPrompt(results);
+            toolContent = this.searchService.formatResultsForPrompt(results, providedSearchResults);
           } catch {
             toolContent = "Web search was unable to reach search provider.";
           }

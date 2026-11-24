@@ -1,6 +1,6 @@
 import type { BotConfig } from "./config.js";
 import type { SearchService } from "./search-provider.js";
-import type { ChatMessage } from "./types.js";
+import type { ChatMessage, GenerationOptions } from "./types.js";
 import type { AiProvider, FetchLike } from "./providers/types.js";
 import { createAiProvider } from "./providers/factory.js";
 import {
@@ -116,21 +116,23 @@ export class AiClient {
   public async generate(
     messages: readonly ChatMessage[],
     externalSignal?: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string> {
     if (messages.length === 0 || !hasChatMessageContent(messages.at(-1)?.content)) {
       throw new Error("At least one non-empty chat message is required.");
     }
 
     if (this.fallback) {
-      return this.fallback.generate(messages, externalSignal);
+      return this.fallback.generate(messages, externalSignal, options);
     }
 
-    return this.generateDirect(messages, externalSignal);
+    return this.generateDirect(messages, externalSignal, options);
   }
 
   private async generateDirect(
     messages: readonly ChatMessage[],
     externalSignal?: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
@@ -140,7 +142,7 @@ export class AiClient {
     externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
 
     try {
-      return await this.provider.generate(messages, controller.signal);
+      return await this.provider.generate(messages, controller.signal, options);
     } catch (error) {
       if (
         error instanceof AiProviderError ||

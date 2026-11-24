@@ -386,19 +386,25 @@ export class SearchService {
     }
   }
 
-  public formatResultsForPrompt(results: readonly SearchResult[]): string {
+  public formatResultsForPrompt(
+    results: readonly SearchResult[],
+    previouslyProvided?: Set<string>,
+  ): string {
     if (results.length === 0) {
       return "No web search results found for this query.";
     }
 
-    return results
-      .map((item, index) => {
-        const title = item.title.trim();
-        const url = item.url.trim();
-        const snippet = item.snippet.trim();
-        return `[${index + 1}] "${title}"\nURL: ${url}\nSummary: ${snippet}`;
-      })
-      .join("\n\n");
+    const uniqueResults = new Map(results.map((item) => [
+      `"${item.title.trim()}"\nURL: ${item.url.trim()}\n${item.snippet.trim()}`,
+      item.url.trim(),
+    ] as const));
+    return [...uniqueResults].map(([result, url], index) => {
+      if (previouslyProvided?.has(result)) {
+        return `[${index + 1}] See earlier search result: ${url}`;
+      }
+      previouslyProvided?.add(result);
+      return `[${index + 1}] ${result}`;
+    }).join("\n\n");
   }
 
   public formatResultsForDiscord(

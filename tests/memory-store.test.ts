@@ -195,6 +195,18 @@ describe("MemoryStore", () => {
     expect(await store.list("user:123")).toEqual([]);
   });
 
+  it("sends identical memories once but preserves different saved values", () => {
+    const store = new MemoryStore({ enabled: false });
+    const prompt = store.formatForPrompt([
+      { key: "tz", scope: "user:123", value: "PST" },
+      { key: "tz", scope: "guild:456", value: "PST" },
+      { key: "tz", scope: "guild:789", value: "UTC" },
+    ]);
+
+    expect(prompt.split("- tz: PST")).toHaveLength(2);
+    expect(prompt).toContain("- tz: UTC");
+  });
+
   it("fetches context combining user and guild scopes and formats for AI prompt", async () => {
     const { pool } = createMockPool();
     const store = new MemoryStore({ enabled: true, pool });

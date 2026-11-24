@@ -227,6 +227,22 @@ describe("SearchService", () => {
     expect(results).toHaveLength(2);
   });
 
+  it("deduplicates exact results while retaining new snippets and independent requests", () => {
+    const service = new SearchService({ maxResults: 5, provider: "duckduckgo", timeoutMs: 1_000 });
+    const result = { title: "Source", url: "https://example.test", snippet: "Original facts" };
+    const provided = new Set<string>();
+
+    const first = service.formatResultsForPrompt([result, result], provided);
+    expect(first.split("Original facts")).toHaveLength(2);
+    const next = service.formatResultsForPrompt([
+      result, { ...result, snippet: "Additional facts" },
+    ], provided);
+    expect(next).not.toContain("Original facts");
+    expect(next).toContain("See earlier search result: https://example.test");
+    expect(next).toContain("Additional facts");
+    expect(service.formatResultsForPrompt([result])).toContain("Original facts");
+  });
+
   it("formats prompt context and Discord display strings", () => {
     const service = new SearchService({
       maxResults: 2,

@@ -15,7 +15,7 @@ import type { AiProvider, FetchLike } from "./providers/types.js";
 import { createAiProvider } from "./providers/factory.js";
 import type { GoogleNativeProviderOptions } from "./providers/google-native-provider.js";
 import type { SearchService } from "./search-provider.js";
-import type { ChatMessage } from "./types.js";
+import type { ChatMessage, GenerationOptions } from "./types.js";
 
 export type FallbackLogger = (message: string) => void;
 
@@ -417,6 +417,7 @@ export class FallbackOrchestrator {
   public async generate(
     messages: readonly ChatMessage[],
     externalSignal?: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string> {
     const attemptsRecord: Array<{
       attempt: number;
@@ -475,6 +476,7 @@ export class FallbackOrchestrator {
             messages,
             candidate.timeoutMs,
             externalSignal,
+            options,
           );
 
           if (!isPrimary) {
@@ -596,6 +598,7 @@ export class FallbackOrchestrator {
     messages: readonly ChatMessage[],
     timeoutMs: number,
     externalSignal?: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string> {
     const controller = new AbortController();
 
@@ -627,7 +630,7 @@ export class FallbackOrchestrator {
       externalSignal?.addEventListener("abort", onCallerAbort, { once: true });
 
       provider
-        .generate(messages, controller.signal)
+        .generate(messages, controller.signal, options)
         .then((result) => {
           if (settled) return;
           settled = true;

@@ -6,7 +6,7 @@ import {
   stripModelReasoning,
 } from "../message-utils.js";
 import type { SearchService } from "../search-provider.js";
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, GenerationOptions } from "../types.js";
 import {
   AiIncompleteResponseError,
   AiProviderError,
@@ -26,6 +26,7 @@ export class ResponsesProvider implements AiProvider {
   public async generate(
     messages: readonly ChatMessage[],
     signal: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string> {
     const datedPrompt = `${this.config.systemPrompt}\nCurrent date: ${new Date()
       .toISOString()
@@ -45,7 +46,7 @@ export class ResponsesProvider implements AiProvider {
       body.reasoning = { effort: this.config.reasoningEffort };
     }
 
-    if (this.config.webSearchEnabled) {
+    if (this.config.webSearchEnabled && options?.webSearchEnabled !== false) {
       body.tools = [{ type: responsesWebSearchTool(this.config.baseUrl) }];
     }
 

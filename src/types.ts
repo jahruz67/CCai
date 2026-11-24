@@ -34,6 +34,11 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
 }
 
+export interface GenerationOptions {
+  /** A request can disable web search, but cannot override a disabled provider. */
+  webSearchEnabled?: boolean;
+}
+
 export interface ConversationTurn {
   assistant: string;
   user: string;

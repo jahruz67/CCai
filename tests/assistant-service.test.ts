@@ -54,6 +54,59 @@ describe("needsWebSearch", () => {
 });
 
 describe("AssistantService", () => {
+  it.each([
+    ["cpp means cal poly pomona", "cpp", "cal poly pomona"],
+    ["BRB stands for Be Right Back", "BRB", "Be Right Back"],
+    ["timezone = PST", "timezone", "PST"],
+    ["timezone => PST", "timezone", "PST"],
+    ["timezone -> PST", "timezone", "PST"],
+  ])("saves explicit memory definitions without AI: %s", async (text, key, value) => {
+    const generate = vi.fn<TextGenerator["generate"]>();
+    const service = createService({ generate });
+
+    expect(await service.extractMemoryKeyValue(text)).toEqual({ key, value });
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("keeps AI extraction for free-form memories and disables web tools", async () => {
+    const generate = vi.fn<TextGenerator["generate"]>()
+      .mockResolvedValue('{"key":"my school","value":"UCLA"}');
+    const service = createService({ generate });
+
+    expect(await service.extractMemoryKeyValue("I go to UCLA")).toEqual({
+      key: "my school", value: "UCLA",
+    });
+    expect(generate.mock.calls[0]?.[2]).toEqual({ webSearchEnabled: false });
+  });
+
+  it("keeps web tools disabled when repairing a management plan", async () => {
+    const generate = vi.fn<TextGenerator["generate"]>()
+      .mockResolvedValueOnce("invalid JSON")
+      .mockResolvedValueOnce('{"summary":"List channels","actions":[{"type":"list_channels"}]}');
+    const service = createService({ generate });
+
+    expect(await service.planServerManagement("list channels", "{}")).toMatchObject({
+      actions: [{ type: "list_channels" }],
+    });
+    expect(generate.mock.calls.map((call) => call[2])).toEqual([
+      { webSearchEnabled: false }, { webSearchEnabled: false },
+    ]);
+  });
+
+  it("sends identical attached images only once", async () => {
+    const generate = vi.fn<TextGenerator["generate"]>().mockResolvedValue("An image.");
+    const service = createService({ generate });
+
+    await service.answer("scope", "user", "describe", [
+      "https://example.test/image.png", "https://example.test/image.png",
+    ]);
+
+    expect(generate.mock.calls[0]?.[0][0]?.content).toEqual([
+      { text: "describe", type: "text" },
+      { image_url: { url: "https://example.test/image.png" }, type: "image_url" },
+    ]);
+  });
+
   it("includes successful prior turns in a follow-up", async () => {
     const generate = vi
       .fn<TextGenerator["generate"]>()

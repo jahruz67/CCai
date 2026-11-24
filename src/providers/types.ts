@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, GenerationOptions } from "../types.js";
 
 export type FetchLike = (
   input: RequestInfo | URL,
@@ -10,5 +10,6 @@ export interface AiProvider {
   generate(
     messages: readonly ChatMessage[],
     signal: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string>;
 }

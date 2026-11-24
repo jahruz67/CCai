@@ -6,7 +6,7 @@ import {
   stripModelReasoning,
 } from "../message-utils.js";
 import type { SearchService } from "../search-provider.js";
-import type { ChatMessage, ToolCall } from "../types.js";
+import type { ChatMessage, GenerationOptions, ToolCall } from "../types.js";
 import { AiProviderError } from "../ai-client.js";
 import type { AiProvider, FetchLike } from "./types.js";
 import {
@@ -45,6 +45,7 @@ export class ChatCompletionsProvider implements AiProvider {
   public async generate(
     messages: readonly ChatMessage[],
     signal: AbortSignal,
+    options?: GenerationOptions,
   ): Promise<string> {
     const datedPrompt = `${this.config.systemPrompt}\nCurrent date: ${new Date()
       .toISOString()
@@ -63,6 +64,7 @@ export class ChatCompletionsProvider implements AiProvider {
 
     const tokenField = resolveChatTokenField(this.config);
     const citedUrls: string[] = [];
+    const providedSearchResults = new Set<string>();
     const maxRounds = 4;
 
     for (let round = 0; round < maxRounds; round++) {
@@ -76,7 +78,7 @@ export class ChatCompletionsProvider implements AiProvider {
         body.reasoning_effort = this.config.reasoningEffort;
       }
 
-      if (this.config.webSearchEnabled) {
+      if (this.config.webSearchEnabled && options?.webSearchEnabled !== false) {
         if (isGroqBaseUrl(this.config.baseUrl)) {
           body.tools = [{ type: "browser_search" }];
         } else {
@@ -147,7 +149,7 @@ export class ChatCompletionsProvider implements AiProvider {
                     citedUrls.push(item.url);
                   }
                 }
-                toolContent = this.searchService.formatResultsForPrompt(results);
+                toolContent = this.searchService.formatResultsForPrompt(results, providedSearchResults);
               } catch {
                 toolContent = "Web search was unable to reach search provider.";
               }

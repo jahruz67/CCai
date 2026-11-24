@@ -379,8 +379,8 @@ export class MemoryStore {
       return "";
     }
 
-    const lines = memories.map((m) => `- ${m.key}: ${m.value}`);
-    return `[IMPORTANT CONTEXT: Saved Memories & Abbreviations]\nThe user/server has taught you the following abbreviations, definitions, and facts. You MUST prioritize and accurately apply them in your response:\n${lines.join(
+    const lines = [...new Set(memories.map((m) => `- ${m.key}: ${m.value}`))];
+    return `[IMPORTANT CONTEXT: Saved Memories & Abbreviations]\nPrioritize and accurately apply these saved abbreviations, definitions, and facts:\n${lines.join(
       "\n",
     )}`;
   }

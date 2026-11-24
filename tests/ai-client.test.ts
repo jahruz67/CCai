@@ -29,6 +29,52 @@ function config(
   };
 }
 
+describe("request-specific web search", () => {
+  it.each(["responses", "chat-completions", "google-native"] as const)(
+    "disables web tools for one %s request without affecting the next",
+    async (style) => {
+      const body = style === "responses" ? { output_text: "saved" }
+        : style === "chat-completions" ? { choices: [{ message: { content: "saved" } }] }
+        : { candidates: [{ content: { parts: [{ text: "saved" }], role: "model" } }] };
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify(body), { status: 200 }),
+      );
+      const search = new SearchService({ maxResults: 5, provider: "duckduckgo", timeoutMs: 1_000 });
+      const client = new AiClient(config({ style, model: "gemini-test" }), fetcher, search);
+      const messages = [{ content: "extract a memory", role: "user" as const }];
+
+      await client.generate(messages, undefined, { webSearchEnabled: false });
+      await client.generate(messages);
+
+      const bodies = fetcher.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+      expect(bodies[0]).not.toHaveProperty("tools");
+      expect(bodies[1]).toHaveProperty("tools");
+    },
+  );
+
+  it("preserves the request's web setting when switching to a fallback model", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ choices: [{ message: { content: "saved" } }] }), { status: 200 }),
+    ).mockResolvedValueOnce(new Response('{"error":{"message":"Unavailable"}}', { status: 503 }));
+    const client = new AiClient(config({
+      style: "chat-completions",
+      fallback: {
+        circuitBreakerCooldownMs: 60_000, circuitBreakerThreshold: 0,
+        enabled: true, maxRetries: 0, models: [{ model: "fallback" }], timeoutMs: 1_000,
+      },
+    }), fetcher);
+
+    await expect(client.generate([{ content: "extract a memory", role: "user" }], undefined, {
+      webSearchEnabled: false,
+    })).resolves.toBe("saved");
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    for (const call of fetcher.mock.calls) {
+      expect(JSON.parse(String(call[1]?.body))).not.toHaveProperty("tools");
+    }
+  });
+});
+
 describe("AI response extraction", () => {
   it("extracts Responses API output shapes", () => {
     expect(extractResponsesText({ output_text: "  two  " })).toBe("two");
